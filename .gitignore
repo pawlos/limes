@@ -1,0 +1,15 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+.vscode/
+*.suo
+*.DS_Store
+
+# Rider/VS
+.idea/
+
+# Tools
+TestResults/
+*.log
