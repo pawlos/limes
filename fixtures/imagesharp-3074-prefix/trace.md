@@ -319,16 +319,24 @@ The following questions surfaced during construction of this trace. They are
 recorded here so the schema's v1 freeze (after additional fixtures exist) can
 address them with concrete evidence from multiple bugs rather than from one.
 
-### O1 — `taint_value_state` for sanitizer bounds
+### O1 — `taint_value_state` for sanitizer bounds — **RESOLVED in milestone B**
 
-The v0 schema has no field to express what invariant a sanitizer establishes
-about the tainted value (e.g., `bounded_by: stream.Length`). This trace does
-not exercise a sanitizer node (none is present pre-fix), so the gap is not
-painful here. It will become painful when encoding a *post-fix* trace or any
-trace where a partial sanitizer (e.g., `Math.Min(offset, maxSafeSize)`) is
-present but insufficient. Proposal: add an optional `sanitizer_kind` field and
-a `bounded_by` expression to nodes with `role: sanitizer`. Not needed for this
-fixture; flagged for v1.
+Resolved by `fixtures/imagesharp-3074-postfix/` and the schema-v0.1 extension
+documented in `docs/superpowers/specs/2026-04-17-imagesharp-3074-postfix-trace-design.md`.
+Sanitizer nodes now carry `establishes_bound` (`target`, `relation`, `upper_bound`)
+and `on_failure` (`kind`, `exception`) fields capturing the observable effect of
+the bounds-establishing check. Downstream hops do not carry inherited state;
+forward-folding of bounds is the analyzer's responsibility, not the fixture's.
+Original text preserved below for historical reference.
+
+> The v0 schema has no field to express what invariant a sanitizer establishes
+> about the tainted value (e.g., `bounded_by: stream.Length`). This trace does
+> not exercise a sanitizer node (none is present pre-fix), so the gap is not
+> painful here. It will become painful when encoding a *post-fix* trace or any
+> trace where a partial sanitizer (e.g., `Math.Min(offset, maxSafeSize)`) is
+> present but insufficient. Proposal: add an optional `sanitizer_kind` field and
+> a `bounded_by` expression to nodes with `role: sanitizer`. Not needed for this
+> fixture; flagged for v1.
 
 ### O2 — Aggregate vs. scalar taint representation
 
