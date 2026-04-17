@@ -55,6 +55,10 @@ public sealed class FixtureValidator
                 {
                     CheckVocab(dk, Vocabularies.DispatchKinds, "FX012", $"path[{i}].dispatch.kind", diagnostics);
                 }
+                if (node.EstablishesBound is { Relation: { } rel })
+                {
+                    CheckVocab(rel, Vocabularies.Relations, "FX013", $"path[{i}].establishes_bound.relation", diagnostics);
+                }
             }
         }
 

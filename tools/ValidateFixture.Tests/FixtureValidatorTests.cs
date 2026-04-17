@@ -163,6 +163,34 @@ public class FixtureValidatorTests
         diagnostics.ShouldContain(d => d.Code == "FX041" && d.Message.Contains("path[0]") && d.Message.Contains("99"));
     }
 
+    [Fact]
+    public void PathNode_InvalidEstablishesBoundRelation_ReportsFX013()
+    {
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: new_array, file: f, line: 2, size_expression: x, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path:
+              - hop: 0
+                method: M
+                file: f
+                line: 1
+                role: sanitizer
+                tainted_value_in: x
+                transformation: identity
+                tainted_value_out: x
+                dispatch: { kind: direct }
+                establishes_bound: { target: x, relation: "~~", upper_bound: y }
+                on_failure: { kind: throw, exception: E }
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldContain(d => d.Code == "FX013" && d.Message.Contains("relation") && d.Message.Contains("~~"));
+    }
+
     private sealed class TempDirectory : IDisposable
     {
         public string Path { get; } = Directory.CreateTempSubdirectory("fixture-tests-").FullName;
