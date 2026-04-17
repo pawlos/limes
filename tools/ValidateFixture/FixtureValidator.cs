@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using YamlDotNet.Core;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -58,11 +59,11 @@ public sealed class FixtureValidator
 
         return diagnostics;
 
-        static void CheckVocab(string? value, HashSet<string> allowed, string code, string where, List<Diagnostic> diagnostics)
+        static void CheckVocab(string? value, FrozenSet<string> allowed, string code, string where, List<Diagnostic> diagnostics)
         {
             if (value is not null && !allowed.Contains(value))
             {
-                diagnostics.Add(new Diagnostic(code, $"invalid value '{value}' at {where}; allowed: {string.Join(", ", allowed.Order())}"));
+                diagnostics.Add(new Diagnostic(code, $"invalid value '{value}' at {where}; allowed: {string.Join(", ", allowed.Order(StringComparer.Ordinal))}"));
             }
         }
     }
