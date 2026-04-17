@@ -20,4 +20,14 @@ public static class Vocabularies
         "direct", "virtual", "interface", "async_continuation",
         "delegate", "reflection", "unknown",
     }.ToFrozenSet(StringComparer.Ordinal);
+
+    public static readonly FrozenSet<string> Relations = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "<", "<=", "==", "!=", ">=", ">",
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    public static readonly FrozenSet<string> FailureKinds = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "throw", "return_early", "clamp", "skip",
+    }.ToFrozenSet(StringComparer.Ordinal);
 }
