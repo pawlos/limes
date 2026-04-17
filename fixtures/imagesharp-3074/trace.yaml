@@ -29,5 +29,95 @@ sink:
   tainted_value_out: palette
   size_expression: "colorMapSizeBytes"
 
-path: []
+path:
+  - hop: 0
+    method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.Decode
+    file: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs
+    line: 133
+    role: propagator
+    tainted_value_in: stream
+    transformation: identity
+    tainted_value_out: stream
+    dispatch:
+      kind: direct
+      static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
+      resolved_targets: []
+      closure_boundary: false
+    note: >
+      Decode calls ReadImageHeaders(stream, ...) at line 133, forwarding the
+      untrusted stream to the header-reading method where tainted bytes will be
+      extracted.
+
+  - hop: 1
+    method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
+    file: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs
+    line: 1523
+    role: propagator
+    tainted_value_in: stream
+    transformation: identity
+    tainted_value_out: stream
+    dispatch:
+      kind: direct
+      static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
+      resolved_targets: []
+      closure_boundary: false
+    note: >
+      ReadImageHeaders calls ReadFileHeader(stream) at line 1523, delegating
+      the actual byte-reading and fileHeader population to ReadFileHeader.
+
+  - hop: 2
+    method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadFileHeader
+    file: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs
+    line: 1480
+    role: propagator
+    tainted_value_in: stream
+    transformation: read_stream
+    tainted_value_out: fileHeader
+    dispatch:
+      kind: virtual
+      static_type: SixLabors.ImageSharp.IO.BufferedReadStream
+      resolved_targets: []
+      closure_boundary: false
+    note: >
+      ReadFileHeader reads BmpFileHeader.Size bytes from the stream at line
+      1480, then calls BmpFileHeader.Parse(buffer) which sets
+      this.fileHeader. The attacker-controlled Offset field is now in
+      this.fileHeader.Value.Offset.
+
+  - hop: 3
+    method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
+    file: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs
+    line: 1551
+    role: propagator
+    tainted_value_in: fileHeader
+    transformation: field_load
+    tainted_value_out: fileHeader.Value.Offset
+    dispatch:
+      kind: direct
+      static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
+      resolved_targets: []
+      closure_boundary: false
+    note: >
+      this.fileHeader.Value.Offset is loaded from the struct field at line
+      1551. The Offset value came directly from the attacker-controlled header
+      bytes read in ReadFileHeader.
+
+  - hop: 4
+    method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
+    file: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs
+    line: 1551
+    role: propagator
+    tainted_value_in: fileHeader.Value.Offset
+    transformation: arithmetic
+    tainted_value_out: colorMapSizeBytes
+    dispatch:
+      kind: direct
+      static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
+      resolved_targets: []
+      closure_boundary: false
+    note: >
+      colorMapSizeBytes = this.fileHeader.Value.Offset - BmpFileHeader.Size -
+      this.infoHeader.HeaderSize at line 1551. The attacker-controlled Offset
+      drives this subtraction with no upper-bound check against stream.Length,
+      so colorMapSizeBytes can be arbitrarily large.
 sanitizer_absence: []
