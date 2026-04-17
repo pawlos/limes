@@ -128,4 +128,15 @@ path:
       this.infoHeader.HeaderSize at line 1551. The attacker-controlled Offset
       drives this subtraction with no upper-bound check against stream.Length,
       so colorMapSizeBytes can be arbitrarily large.
-sanitizer_absence: []
+sanitizer_absence:
+  - location: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs:1551
+    expected_check: >
+      Before computing colorMapSizeBytes from this.fileHeader.Value.Offset,
+      verify that Offset <= stream.Length. The fix throws
+      InvalidImageContentException when Offset exceeds stream length.
+    tainted_value: fileHeader.Value.Offset
+    present_pre_fix: false
+    present_post_fix: true
+    fix_evidence:
+      commit: 461c021608802370374afabd5d3c2720b3e46f04
+      added_lines: src/ImageSharp/Formats/Bmp/BmpDecoderCore.cs:1551-1555
