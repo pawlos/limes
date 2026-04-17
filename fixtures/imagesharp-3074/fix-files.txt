@@ -1,0 +1,1 @@
+src/ImageSharp/Formats/Bmp/BmpDecoderCore.cs
