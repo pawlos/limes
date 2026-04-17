@@ -1,0 +1,17 @@
+vuln_id: test
+fix_commit: 0000000000000000000000000000000000000000
+fix_pr: https://example/pr/1
+description: test
+source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+sink: { kind: allocation, api: new_array, file: f, line: 2, size_expression: x, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+path:
+  - hop: 0
+    method: M
+    file: f
+    line: 1
+    role: propagator
+    tainted_value_in: x
+    transformation: identity
+    tainted_value_out: x
+    dispatch: { kind: direct }
+sanitizer_absence: []

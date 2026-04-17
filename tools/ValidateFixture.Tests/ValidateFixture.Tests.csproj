@@ -23,4 +23,10 @@
     <ProjectReference Include="..\ValidateFixture\ValidateFixture.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="TestData\**\*.yaml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

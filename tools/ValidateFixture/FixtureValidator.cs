@@ -42,7 +42,29 @@ public sealed class FixtureValidator
         Require(doc.Path, "FX007", "path", diagnostics);
         Require(doc.SanitizerAbsence, "FX008", "sanitizer_absence", diagnostics);
 
+        if (doc.Path is { } path)
+        {
+            for (int i = 0; i < path.Count; i++)
+            {
+                var node = path[i];
+                CheckVocab(node.Role, Vocabularies.Roles, "FX010", $"path[{i}].role", diagnostics);
+                CheckVocab(node.Transformation, Vocabularies.Transformations, "FX011", $"path[{i}].transformation", diagnostics);
+                if (node.Dispatch is { Kind: { } dk })
+                {
+                    CheckVocab(dk, Vocabularies.DispatchKinds, "FX012", $"path[{i}].dispatch.kind", diagnostics);
+                }
+            }
+        }
+
         return diagnostics;
+
+        static void CheckVocab(string? value, HashSet<string> allowed, string code, string where, List<Diagnostic> diagnostics)
+        {
+            if (value is not null && !allowed.Contains(value))
+            {
+                diagnostics.Add(new Diagnostic(code, $"invalid value '{value}' at {where}; allowed: {string.Join(", ", allowed.Order())}"));
+            }
+        }
     }
 
     private static void Require<T>(T? value, string code, string name, List<Diagnostic> diagnostics)
