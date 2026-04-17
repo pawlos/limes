@@ -14,9 +14,19 @@ public static class Program
 
         var yamlPath = args[0];
         string? snippetsDir = null;
-        for (int i = 1; i < args.Length - 1; i++)
+        for (int i = 1; i < args.Length; i++)
         {
-            if (args[i] == "--snippets-dir") snippetsDir = args[i + 1];
+            if (args[i] == "--snippets-dir")
+            {
+                if (i + 1 >= args.Length)
+                {
+                    Console.Error.WriteLine("error: --snippets-dir requires a directory argument");
+                    Console.Error.WriteLine("usage: ValidateFixture <trace.yaml> [--snippets-dir <dir>]");
+                    return 2;
+                }
+                snippetsDir = args[i + 1];
+                i++; // skip the value we just consumed
+            }
         }
 
         if (!File.Exists(yamlPath))
