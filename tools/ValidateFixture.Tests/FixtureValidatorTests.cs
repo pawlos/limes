@@ -1,8 +1,8 @@
 using Shouldly;
-using SixLabors.TaintAnalyzer.ValidateFixture;
+using TaintAnalyzer.ValidateFixture;
 using Xunit;
 
-namespace SixLabors.TaintAnalyzer.ValidateFixture.Tests;
+namespace TaintAnalyzer.ValidateFixture.Tests;
 
 public class FixtureValidatorTests
 {

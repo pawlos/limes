@@ -1,6 +1,6 @@
 using System.Collections.Frozen;
 
-namespace SixLabors.TaintAnalyzer.ValidateFixture;
+namespace TaintAnalyzer.ValidateFixture;
 
 public static class Vocabularies
 {

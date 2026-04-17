@@ -1,6 +1,6 @@
 using YamlDotNet.Serialization;
 
-namespace SixLabors.TaintAnalyzer.ValidateFixture;
+namespace TaintAnalyzer.ValidateFixture;
 
 public sealed class FixtureDocument
 {

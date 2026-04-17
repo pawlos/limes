@@ -134,7 +134,7 @@ dotnet sln TaintAnalyzer.sln add tools/ValidateFixture.Tests/ValidateFixture.Tes
 
 File: `tools/ValidateFixture/Program.cs`
 ```csharp
-namespace SixLabors.TaintAnalyzer.ValidateFixture;
+namespace TaintAnalyzer.ValidateFixture;
 
 public static class Program
 {
@@ -147,10 +147,10 @@ public static class Program
 File: `tools/ValidateFixture.Tests/FixtureValidatorTests.cs`
 ```csharp
 using Shouldly;
-using SixLabors.TaintAnalyzer.ValidateFixture;
+using TaintAnalyzer.ValidateFixture;
 using Xunit;
 
-namespace SixLabors.TaintAnalyzer.ValidateFixture.Tests;
+namespace TaintAnalyzer.ValidateFixture.Tests;
 
 public class FixtureValidatorTests
 {
@@ -173,7 +173,7 @@ Expected: compile error — `FixtureValidator` does not exist. This is the red b
 
 File: `tools/ValidateFixture/FixtureValidator.cs`
 ```csharp
-namespace SixLabors.TaintAnalyzer.ValidateFixture;
+namespace TaintAnalyzer.ValidateFixture;
 
 public sealed record Diagnostic(string Code, string Message);
 
@@ -258,7 +258,7 @@ File: `tools/ValidateFixture/FixtureDocument.cs`
 ```csharp
 using YamlDotNet.Serialization;
 
-namespace SixLabors.TaintAnalyzer.ValidateFixture;
+namespace TaintAnalyzer.ValidateFixture;
 
 public sealed class FixtureDocument
 {
@@ -331,7 +331,7 @@ using YamlDotNet.Core;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
-namespace SixLabors.TaintAnalyzer.ValidateFixture;
+namespace TaintAnalyzer.ValidateFixture;
 
 public sealed record Diagnostic(string Code, string Message);
 
@@ -510,7 +510,7 @@ Expected: 4 new failures (3 invalid-vocab + 1 `ValidMinimalFixture`).
 
 File: `tools/ValidateFixture/Vocabularies.cs`
 ```csharp
-namespace SixLabors.TaintAnalyzer.ValidateFixture;
+namespace TaintAnalyzer.ValidateFixture;
 
 public static class Vocabularies
 {
@@ -831,7 +831,7 @@ Make `dotnet run --project tools/ValidateFixture -- <trace.yaml> --snippets-dir 
 
 File: `tools/ValidateFixture/Program.cs`
 ```csharp
-namespace SixLabors.TaintAnalyzer.ValidateFixture;
+namespace TaintAnalyzer.ValidateFixture;
 
 public static class Program
 {

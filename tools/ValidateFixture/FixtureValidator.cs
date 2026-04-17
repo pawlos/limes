@@ -4,7 +4,7 @@ using YamlDotNet.Core;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
-namespace SixLabors.TaintAnalyzer.ValidateFixture;
+namespace TaintAnalyzer.ValidateFixture;
 
 public sealed record Diagnostic(string Code, string Message);
 
