@@ -76,13 +76,21 @@ path:
     dispatch:
       kind: virtual
       static_type: SixLabors.ImageSharp.IO.BufferedReadStream
-      resolved_targets: []
+      resolved_targets:
+        - SixLabors.ImageSharp.IO.BufferedReadStream.Read
       closure_boundary: false
     note: >
       ReadFileHeader reads BmpFileHeader.Size bytes from the stream at line
       1480, then calls BmpFileHeader.Parse(buffer) which sets
       this.fileHeader. The attacker-controlled Offset field is now in
       this.fileHeader.Value.Offset.
+      CHA closure: BufferedReadStream is declared `internal sealed class
+      BufferedReadStream : Stream` and explicitly overrides both
+      Read(byte[], int, int) (delegating to Read(Span<byte>)) and
+      Read(Span<byte>) directly. Because the class is sealed there are no
+      further subclasses; the CHA closure contains exactly one concrete
+      target: SixLabors.ImageSharp.IO.BufferedReadStream.Read, which is
+      inside the ImageSharp assembly. closure_boundary remains false.
 
   - hop: 3
     method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
