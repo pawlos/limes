@@ -1,0 +1,142 @@
+vuln_id: imagesharp-3074-postfix
+fix_commit: 461c021608802370374afabd5d3c2720b3e46f04
+fix_pr: https://github.com/SixLabors/ImageSharp/pull/3075
+description: BMP decoder after the fix — attacker-controlled fileHeader.Value.Offset
+             is bounded against stream.Length before it reaches the
+             colorMapSizeBytes arithmetic and the subsequent allocation.
+
+source:
+  kind: decoder_entry
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.Decode
+  file: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs
+  line: 128
+  role: source
+  tainted_value_in: stream
+  transformation: read_stream
+  tainted_value_out: stream
+  tainted_inputs:
+    - name: fileHeader.Offset
+      origin: header_field:Offset
+
+sink:
+  kind: allocation
+  api: new_array
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
+  file: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs
+  line: 1606
+  role: sink
+  tainted_value_in: colorMapSizeBytes
+  transformation: arithmetic
+  tainted_value_out: palette
+  size_expression: "colorMapSizeBytes"
+
+path:
+  - hop: 0
+    method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.Decode
+    file: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs
+    line: 133
+    role: propagator
+    tainted_value_in: stream
+    transformation: identity
+    tainted_value_out: stream
+    dispatch:
+      kind: direct
+      static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
+      resolved_targets: []
+      closure_boundary: false
+    note: Decode forwards stream to ReadImageHeaders.
+
+  - hop: 1
+    method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
+    file: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs
+    line: 1523
+    role: propagator
+    tainted_value_in: stream
+    transformation: identity
+    tainted_value_out: stream
+    dispatch:
+      kind: direct
+      static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
+      resolved_targets: []
+      closure_boundary: false
+    note: ReadImageHeaders delegates file-header reading to ReadFileHeader.
+
+  - hop: 2
+    method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadFileHeader
+    file: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs
+    line: 1480
+    role: propagator
+    tainted_value_in: stream
+    transformation: read_stream
+    tainted_value_out: fileHeader
+    dispatch:
+      kind: virtual
+      static_type: SixLabors.ImageSharp.IO.BufferedReadStream
+      resolved_targets:
+        - SixLabors.ImageSharp.IO.BufferedReadStream.Read
+      closure_boundary: false
+    note: >
+      stream.Read dispatches virtually; BufferedReadStream is sealed and
+      overrides Read, so CHA closure is exactly one concrete target inside
+      the ImageSharp assembly.
+
+  - hop: 3
+    method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
+    file: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs
+    line: 1551
+    role: propagator
+    tainted_value_in: fileHeader
+    transformation: field_load
+    tainted_value_out: fileHeader.Value.Offset
+    dispatch:
+      kind: direct
+      static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
+      resolved_targets: []
+      closure_boundary: false
+    note: this.fileHeader.Value.Offset loaded from the Nullable<BmpFileHeader> struct.
+
+  - hop: 4
+    method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
+    file: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs
+    line: 1551
+    role: sanitizer
+    tainted_value_in: fileHeader.Value.Offset
+    transformation: identity
+    tainted_value_out: fileHeader.Value.Offset
+    dispatch:
+      kind: direct
+      static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
+      resolved_targets: []
+      closure_boundary: false
+    establishes_bound:
+      target: fileHeader.Value.Offset
+      relation: "<="
+      upper_bound: stream.Length
+    on_failure:
+      kind: throw
+      exception: InvalidImageContentException
+    note: >
+      The fix's guard. Offset is compared to stream.Length; if it exceeds,
+      BmpThrowHelper.ThrowInvalidImageContentException is invoked and the
+      decode aborts. The fall-through path establishes Offset <= stream.Length.
+
+  - hop: 5
+    method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
+    file: src__ImageSharp__Formats__Bmp__BmpDecoderCore.cs
+    line: 1557
+    role: propagator
+    tainted_value_in: fileHeader.Value.Offset
+    transformation: arithmetic
+    tainted_value_out: colorMapSizeBytes
+    dispatch:
+      kind: direct
+      static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
+      resolved_targets: []
+      closure_boundary: false
+    note: >
+      colorMapSizeBytes = Offset - BmpFileHeader.Size - infoHeader.HeaderSize.
+      Because hop 4 established Offset <= stream.Length, a forward-folding
+      analyzer derives colorMapSizeBytes <= stream.Length - BmpFileHeader.Size
+      - infoHeader.HeaderSize, which is a safe bound for realistic header sizes.
+
+sanitizer_absence: []
