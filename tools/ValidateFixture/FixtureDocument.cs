@@ -26,6 +26,8 @@ public sealed class PathNode
     [YamlMember(Alias = "tainted_value_out")] public string? TaintedValueOut { get; init; }
     [YamlMember(Alias = "dispatch")] public Dispatch? Dispatch { get; init; }
     [YamlMember(Alias = "note")] public string? Note { get; init; }
+    [YamlMember(Alias = "establishes_bound")] public EstablishesBound? EstablishesBound { get; init; }
+    [YamlMember(Alias = "on_failure")]        public OnFailure?        OnFailure        { get; init; }
 
     // Fields used only on the top-level `source` / `sink` shapes.
     [YamlMember(Alias = "kind")] public string? Kind { get; init; }
@@ -62,4 +64,18 @@ public sealed class FixEvidence
 {
     [YamlMember(Alias = "commit")] public string? Commit { get; init; }
     [YamlMember(Alias = "added_lines")] public string? AddedLines { get; init; }
+}
+
+public sealed class EstablishesBound
+{
+    [YamlMember(Alias = "target")]      public string? Target      { get; init; }
+    [YamlMember(Alias = "relation")]    public string? Relation    { get; init; }
+    [YamlMember(Alias = "upper_bound")] public string? UpperBound  { get; init; }
+    [YamlMember(Alias = "lower_bound")] public string? LowerBound  { get; init; }
+}
+
+public sealed class OnFailure
+{
+    [YamlMember(Alias = "kind")]      public string? Kind      { get; init; }
+    [YamlMember(Alias = "exception")] public string? Exception { get; init; }
 }
