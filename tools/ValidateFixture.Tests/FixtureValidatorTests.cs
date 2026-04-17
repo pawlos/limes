@@ -62,6 +62,52 @@ public class FixtureValidatorTests
         diagnostics.ShouldBeEmpty();
     }
 
+    [Fact]
+    public void PathNode_MissingLine_ReportsFX020()
+    {
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: new_array, file: f, line: 2, size_expression: x, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path:
+              - hop: 0
+                method: M
+                file: f
+                role: propagator
+                tainted_value_in: x
+                transformation: identity
+                tainted_value_out: x
+                dispatch: { kind: direct }
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldContain(d => d.Code == "FX020" && d.Message.Contains("path[0].line"));
+    }
+
+    [Fact]
+    public void SanitizerAbsence_MissingExpectedCheck_ReportsFX030()
+    {
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: new_array, file: f, line: 2, size_expression: x, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path: []
+            sanitizer_absence:
+              - location: f:3
+                tainted_value: x
+                present_pre_fix: false
+                present_post_fix: true
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldContain(d => d.Code == "FX030" && d.Message.Contains("expected_check"));
+    }
+
     private static string BuildYaml(
         string pathRole = "propagator",
         string pathTransformation = "identity",

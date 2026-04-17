@@ -57,6 +57,36 @@ public sealed class FixtureValidator
             }
         }
 
+        if (doc.Path is { } pathNodes)
+        {
+            for (int i = 0; i < pathNodes.Count; i++)
+            {
+                var n = pathNodes[i];
+                RequireField(n.Hop, "FX020", $"path[{i}].hop", diagnostics);
+                RequireField(n.Method, "FX020", $"path[{i}].method", diagnostics);
+                RequireField(n.File, "FX020", $"path[{i}].file", diagnostics);
+                RequireField(n.Line, "FX020", $"path[{i}].line", diagnostics);
+                RequireField(n.Role, "FX020", $"path[{i}].role", diagnostics);
+                RequireField(n.TaintedValueIn, "FX020", $"path[{i}].tainted_value_in", diagnostics);
+                RequireField(n.TaintedValueOut, "FX020", $"path[{i}].tainted_value_out", diagnostics);
+                RequireField(n.Transformation, "FX020", $"path[{i}].transformation", diagnostics);
+                RequireField(n.Dispatch?.Kind, "FX020", $"path[{i}].dispatch.kind", diagnostics);
+            }
+        }
+
+        if (doc.SanitizerAbsence is { } sas)
+        {
+            for (int i = 0; i < sas.Count; i++)
+            {
+                var s = sas[i];
+                RequireField(s.Location, "FX030", $"sanitizer_absence[{i}].location", diagnostics);
+                RequireField(s.ExpectedCheck, "FX030", $"sanitizer_absence[{i}].expected_check", diagnostics);
+                RequireField(s.TaintedValue, "FX030", $"sanitizer_absence[{i}].tainted_value", diagnostics);
+                RequireField(s.PresentPreFix, "FX030", $"sanitizer_absence[{i}].present_pre_fix", diagnostics);
+                RequireField(s.PresentPostFix, "FX030", $"sanitizer_absence[{i}].present_post_fix", diagnostics);
+            }
+        }
+
         return diagnostics;
 
         static void CheckVocab(string? value, FrozenSet<string> allowed, string code, string where, List<Diagnostic> diagnostics)
@@ -64,6 +94,14 @@ public sealed class FixtureValidator
             if (value is not null && !allowed.Contains(value))
             {
                 diagnostics.Add(new Diagnostic(code, $"invalid value '{value}' at {where}; allowed: {string.Join(", ", allowed.Order(StringComparer.Ordinal))}"));
+            }
+        }
+
+        static void RequireField<T>(T? value, string code, string where, List<Diagnostic> diagnostics)
+        {
+            if (value is null || (value is string s && string.IsNullOrWhiteSpace(s)))
+            {
+                diagnostics.Add(new Diagnostic(code, $"missing field: {where}"));
             }
         }
     }
