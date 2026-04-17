@@ -108,6 +108,67 @@ public class FixtureValidatorTests
         diagnostics.ShouldContain(d => d.Code == "FX030" && d.Message.Contains("expected_check"));
     }
 
+    [Fact]
+    public void FileRef_NotInSnippetsDir_ReportsFX040()
+    {
+        using var temp = new TempDirectory();
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: missing.cs, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: new_array, file: missing.cs, line: 2, size_expression: x, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path:
+              - hop: 0
+                method: M
+                file: missing.cs
+                line: 5
+                role: propagator
+                tainted_value_in: x
+                transformation: identity
+                tainted_value_out: x
+                dispatch: { kind: direct }
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: temp.Path);
+        diagnostics.ShouldContain(d => d.Code == "FX040" && d.Message.Contains("missing.cs"));
+    }
+
+    [Fact]
+    public void FileRef_LineOutOfRange_ReportsFX041()
+    {
+        using var temp = new TempDirectory();
+        File.WriteAllText(Path.Combine(temp.Path, "present.cs"), "line1\nline2\n");
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: present.cs, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: new_array, file: present.cs, line: 1, size_expression: x, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path:
+              - hop: 0
+                method: M
+                file: present.cs
+                line: 99
+                role: propagator
+                tainted_value_in: x
+                transformation: identity
+                tainted_value_out: x
+                dispatch: { kind: direct }
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: temp.Path);
+        diagnostics.ShouldContain(d => d.Code == "FX041" && d.Message.Contains("path[0]") && d.Message.Contains("99"));
+    }
+
+    private sealed class TempDirectory : IDisposable
+    {
+        public string Path { get; } = Directory.CreateTempSubdirectory("fixture-tests-").FullName;
+        public void Dispose() { try { Directory.Delete(Path, recursive: true); } catch { /* ignore */ } }
+    }
+
     private static string BuildYaml(
         string pathRole = "propagator",
         string pathTransformation = "identity",

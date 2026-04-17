@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.IO;
 using YamlDotNet.Core;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -87,7 +88,34 @@ public sealed class FixtureValidator
             }
         }
 
+        if (snippetsDir is not null && doc.Path is { } pn)
+        {
+            for (int i = 0; i < pn.Count; i++)
+            {
+                CheckFileLine(pn[i].File, pn[i].Line, $"path[{i}]", snippetsDir, diagnostics);
+            }
+            // Also check source/sink top-level shapes.
+            if (doc.Source is { } src) CheckFileLine(src.File, src.Line, "source", snippetsDir, diagnostics);
+            if (doc.Sink is { } snk) CheckFileLine(snk.File, snk.Line, "sink", snippetsDir, diagnostics);
+        }
+
         return diagnostics;
+
+        static void CheckFileLine(string? file, int? line, string where, string snippetsDir, List<Diagnostic> diagnostics)
+        {
+            if (file is null || line is null) return; // already reported by FX020
+            var full = System.IO.Path.Combine(snippetsDir, file);
+            if (!File.Exists(full))
+            {
+                diagnostics.Add(new Diagnostic("FX040", $"{where}: file not found in snippets dir: {file}"));
+                return;
+            }
+            int count = File.ReadLines(full).Count();
+            if (line.Value < 1 || line.Value > count)
+            {
+                diagnostics.Add(new Diagnostic("FX041", $"{where}: line {line.Value} out of range in {file} (has {count} lines)"));
+            }
+        }
 
         static void CheckVocab(string? value, FrozenSet<string> allowed, string code, string where, List<Diagnostic> diagnostics)
         {
