@@ -219,6 +219,87 @@ public class FixtureValidatorTests
         diagnostics.ShouldContain(d => d.Code == "FX014" && d.Message.Contains("on_failure.kind") && d.Message.Contains("pray"));
     }
 
+    [Theory]
+    [InlineData("target",      "establishes_bound.target")]
+    [InlineData("relation",    "establishes_bound.relation")]
+    [InlineData("upper_bound", "establishes_bound.upper_bound")]
+    [InlineData("kind",        "on_failure.kind")]
+    public void SanitizerNode_MissingRequiredField_ReportsFX023(string omit, string expectedWhere)
+    {
+        var yaml = BuildSanitizerYaml(omit);
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldContain(d => d.Code == "FX023" && d.Message.Contains(expectedWhere));
+    }
+
+    [Fact]
+    public void SanitizerNode_ThrowWithoutException_ReportsFX023()
+    {
+        var yaml = BuildSanitizerYaml(omit: "exception");
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldContain(d => d.Code == "FX023" && d.Message.Contains("on_failure.exception"));
+    }
+
+    [Fact]
+    public void SanitizerNode_NonThrowDoesNotRequireException()
+    {
+        // kind: clamp — exception is not required.
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: new_array, file: f, line: 2, size_expression: x, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path:
+              - hop: 0
+                method: M
+                file: f
+                line: 1
+                role: sanitizer
+                tainted_value_in: x
+                transformation: identity
+                tainted_value_out: x
+                dispatch: { kind: direct }
+                establishes_bound: { target: x, relation: "<=", upper_bound: y }
+                on_failure: { kind: clamp }
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldNotContain(d => d.Code == "FX023");
+    }
+
+    private static string BuildSanitizerYaml(string omit)
+    {
+        // Each field is emitted only if omit != <field>.
+        string target     = omit == "target"      ? "" : "target: x,";
+        string relation   = omit == "relation"    ? "" : "relation: \"<=\",";
+        string upperBound = omit == "upper_bound" ? "" : "upper_bound: y";
+        string kind       = omit == "kind"        ? "" : "kind: throw,";
+        string exception  = omit == "exception"   ? "" : "exception: E";
+
+        return $$"""
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: new_array, file: f, line: 2, size_expression: x, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path:
+              - hop: 0
+                method: M
+                file: f
+                line: 1
+                role: sanitizer
+                tainted_value_in: x
+                transformation: identity
+                tainted_value_out: x
+                dispatch: { kind: direct }
+                establishes_bound: { {{target}} {{relation}} {{upperBound}} }
+                on_failure: { {{kind}} {{exception}} }
+            sanitizer_absence: []
+            """;
+    }
+
     private sealed class TempDirectory : IDisposable
     {
         public string Path { get; } = Directory.CreateTempSubdirectory("fixture-tests-").FullName;

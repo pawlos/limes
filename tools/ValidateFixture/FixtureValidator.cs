@@ -63,6 +63,33 @@ public sealed class FixtureValidator
                 {
                     CheckVocab(fk, Vocabularies.FailureKinds, "FX014", $"path[{i}].on_failure.kind", diagnostics);
                 }
+
+                if (string.Equals(node.Role, "sanitizer", StringComparison.Ordinal))
+                {
+                    if (node.EstablishesBound is null)
+                    {
+                        diagnostics.Add(new Diagnostic("FX023", $"sanitizer node path[{i}] missing required field: establishes_bound"));
+                    }
+                    else
+                    {
+                        RequireField(node.EstablishesBound.Target,     "FX023", $"path[{i}].establishes_bound.target",      diagnostics);
+                        RequireField(node.EstablishesBound.Relation,   "FX023", $"path[{i}].establishes_bound.relation",    diagnostics);
+                        RequireField(node.EstablishesBound.UpperBound, "FX023", $"path[{i}].establishes_bound.upper_bound", diagnostics);
+                    }
+
+                    if (node.OnFailure is null)
+                    {
+                        diagnostics.Add(new Diagnostic("FX023", $"sanitizer node path[{i}] missing required field: on_failure"));
+                    }
+                    else
+                    {
+                        RequireField(node.OnFailure.Kind, "FX023", $"path[{i}].on_failure.kind", diagnostics);
+                        if (string.Equals(node.OnFailure.Kind, "throw", StringComparison.Ordinal))
+                        {
+                            RequireField(node.OnFailure.Exception, "FX023", $"path[{i}].on_failure.exception", diagnostics);
+                        }
+                    }
+                }
             }
         }
 
