@@ -59,6 +59,10 @@ public sealed class FixtureValidator
                 {
                     CheckVocab(rel, Vocabularies.Relations, "FX013", $"path[{i}].establishes_bound.relation", diagnostics);
                 }
+                if (node.OnFailure is { Kind: { } fk })
+                {
+                    CheckVocab(fk, Vocabularies.FailureKinds, "FX014", $"path[{i}].on_failure.kind", diagnostics);
+                }
             }
         }
 
