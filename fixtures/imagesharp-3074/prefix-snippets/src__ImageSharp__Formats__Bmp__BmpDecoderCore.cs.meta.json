@@ -1,0 +1,6 @@
+{
+  "source_path": "src/ImageSharp/Formats/Bmp/BmpDecoderCore.cs",
+  "recovered_against_sha": "67bac23cff7c32743d0c8e166e9cccbf567837e0",
+  "recovery_method": "git-show-at-pre-merge-parent",
+  "sha256": "e61ec36815794458006fc151aab14425ee2eec304e8728f7e4663189b9d26a35"
+}
