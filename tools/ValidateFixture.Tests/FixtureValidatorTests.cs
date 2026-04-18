@@ -222,7 +222,6 @@ public class FixtureValidatorTests
     [Theory]
     [InlineData("target",      "establishes_bound.target")]
     [InlineData("relation",    "establishes_bound.relation")]
-    [InlineData("upper_bound", "establishes_bound.upper_bound")]
     [InlineData("kind",        "on_failure.kind")]
     public void SanitizerNode_MissingRequiredField_ReportsFX023(string omit, string expectedWhere)
     {
@@ -262,6 +261,62 @@ public class FixtureValidatorTests
                 dispatch: { kind: direct }
                 establishes_bound: { target: x, relation: "<=", upper_bound: y }
                 on_failure: { kind: clamp }
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldNotContain(d => d.Code == "FX023");
+    }
+
+    [Fact]
+    public void SanitizerNode_MissingBothBounds_ReportsFX023()
+    {
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: new_array, file: f, line: 2, size_expression: x, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path:
+              - hop: 0
+                method: M
+                file: f
+                line: 1
+                role: sanitizer
+                tainted_value_in: x
+                transformation: identity
+                tainted_value_out: x
+                dispatch: { kind: direct }
+                establishes_bound: { target: x, relation: "<=" }
+                on_failure: { kind: throw, exception: E }
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldContain(d => d.Code == "FX023" && d.Message.Contains("establishes_bound") && (d.Message.Contains("upper_bound") || d.Message.Contains("lower_bound")));
+    }
+
+    [Fact]
+    public void SanitizerNode_LowerBoundOnly_NoFX023()
+    {
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: new_array, file: f, line: 2, size_expression: x, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path:
+              - hop: 0
+                method: M
+                file: f
+                line: 1
+                role: sanitizer
+                tainted_value_in: x
+                transformation: identity
+                tainted_value_out: x
+                dispatch: { kind: direct }
+                establishes_bound: { target: x, relation: ">=", lower_bound: "0" }
+                on_failure: { kind: return_early }
             sanitizer_absence: []
             """;
         var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);

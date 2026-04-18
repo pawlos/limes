@@ -115,9 +115,15 @@ public sealed class FixtureValidator
                     }
                     else
                     {
-                        RequireField(node.EstablishesBound.Target,     "FX023", $"path[{i}].establishes_bound.target",      diagnostics);
-                        RequireField(node.EstablishesBound.Relation,   "FX023", $"path[{i}].establishes_bound.relation",    diagnostics);
-                        RequireField(node.EstablishesBound.UpperBound, "FX023", $"path[{i}].establishes_bound.upper_bound", diagnostics);
+                        RequireField(node.EstablishesBound.Target,   "FX023", $"path[{i}].establishes_bound.target",   diagnostics);
+                        RequireField(node.EstablishesBound.Relation, "FX023", $"path[{i}].establishes_bound.relation", diagnostics);
+                        bool hasUpper = !string.IsNullOrWhiteSpace(node.EstablishesBound.UpperBound);
+                        bool hasLower = !string.IsNullOrWhiteSpace(node.EstablishesBound.LowerBound);
+                        if (!hasUpper && !hasLower)
+                        {
+                            diagnostics.Add(new Diagnostic("FX023",
+                                $"sanitizer node path[{i}].establishes_bound requires at least one of upper_bound or lower_bound"));
+                        }
                     }
 
                     if (node.OnFailure is null)
