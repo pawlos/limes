@@ -50,6 +50,43 @@ public sealed class FixtureValidator
             CheckVocab(sinkForVocab.Api,  Vocabularies.SinkApis,  "FX015", "sink.api",  diagnostics);
         }
 
+        if (doc.Sink is { } sinkForCoupling && sinkForCoupling.Kind is { } sinkKind
+            && Vocabularies.SinkKinds.Contains(sinkKind))
+        {
+            if (string.Equals(sinkKind, "allocation", StringComparison.Ordinal))
+            {
+                if (sinkForCoupling.Api is { } api && Vocabularies.SinkApis.Contains(api))
+                {
+                    if (api is not ("new_array" or "array_pool_rent" or "alloc_hglobal" or "memory_pool_rent" or "stackalloc"))
+                    {
+                        diagnostics.Add(new Diagnostic("FX024",
+                            $"sink.kind 'allocation' is not compatible with sink.api '{api}' (expected one of new_array, array_pool_rent, alloc_hglobal, memory_pool_rent, stackalloc)"));
+                    }
+                }
+                if (string.IsNullOrWhiteSpace(sinkForCoupling.SizeExpression))
+                {
+                    diagnostics.Add(new Diagnostic("FX024",
+                        "sink.kind 'allocation' requires sink.size_expression to be populated"));
+                }
+            }
+            else if (string.Equals(sinkKind, "span_access", StringComparison.Ordinal))
+            {
+                if (sinkForCoupling.Api is { } api && Vocabularies.SinkApis.Contains(api))
+                {
+                    if (api is not ("span_index" or "span_slice"))
+                    {
+                        diagnostics.Add(new Diagnostic("FX024",
+                            $"sink.kind 'span_access' is not compatible with sink.api '{api}' (expected span_index or span_slice)"));
+                    }
+                }
+                if (string.IsNullOrWhiteSpace(sinkForCoupling.AccessExpression))
+                {
+                    diagnostics.Add(new Diagnostic("FX024",
+                        "sink.kind 'span_access' requires sink.access_expression to be populated"));
+                }
+            }
+        }
+
         if (doc.Path is { } path)
         {
             for (int i = 0; i < path.Count; i++)

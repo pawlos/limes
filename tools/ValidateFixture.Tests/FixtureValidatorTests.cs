@@ -334,6 +334,108 @@ public class FixtureValidatorTests
         diagnostics.ShouldContain(d => d.Code == "FX015" && d.Message.Contains("sink.api") && d.Message.Contains("teleport"));
     }
 
+    [Fact]
+    public void Sink_AllocationWithoutSizeExpression_ReportsFX024()
+    {
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: new_array, file: f, line: 2, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path: []
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldContain(d => d.Code == "FX024" && d.Message.Contains("size_expression"));
+    }
+
+    [Fact]
+    public void Sink_AllocationWithSpanApi_ReportsFX024()
+    {
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: span_index, file: f, line: 2, size_expression: x, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path: []
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldContain(d => d.Code == "FX024" && d.Message.Contains("allocation") && d.Message.Contains("span_index"));
+    }
+
+    [Fact]
+    public void Sink_SpanAccessWithoutAccessExpression_ReportsFX024()
+    {
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: span_access, api: span_slice, file: f, line: 2, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path: []
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldContain(d => d.Code == "FX024" && d.Message.Contains("access_expression"));
+    }
+
+    [Fact]
+    public void Sink_SpanAccessWithAllocationApi_ReportsFX024()
+    {
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: span_access, api: new_array, file: f, line: 2, access_expression: "data[i]", method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path: []
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldContain(d => d.Code == "FX024" && d.Message.Contains("span_access") && d.Message.Contains("new_array"));
+    }
+
+    [Fact]
+    public void Sink_ValidAllocation_NoFX024()
+    {
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: new_array, file: f, line: 2, size_expression: "n", method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path: []
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldNotContain(d => d.Code == "FX024");
+    }
+
+    [Fact]
+    public void Sink_ValidSpanAccess_NoFX024()
+    {
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: span_access, api: span_slice, file: f, line: 2, access_expression: "data.Slice(a, b)", method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path: []
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldNotContain(d => d.Code == "FX024");
+    }
+
     private sealed class TempDirectory : IDisposable
     {
         public string Path { get; } = Directory.CreateTempSubdirectory("fixture-tests-").FullName;
