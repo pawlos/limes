@@ -300,6 +300,40 @@ public class FixtureValidatorTests
             """;
     }
 
+    [Fact]
+    public void Sink_InvalidKind_ReportsFX015()
+    {
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: banana, api: new_array, file: f, line: 2, size_expression: x, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path: []
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldContain(d => d.Code == "FX015" && d.Message.Contains("sink.kind") && d.Message.Contains("banana"));
+    }
+
+    [Fact]
+    public void Sink_InvalidApi_ReportsFX015()
+    {
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: teleport, file: f, line: 2, size_expression: x, method: M, role: sink, tainted_value_in: x, transformation: array_index, tainted_value_out: x }
+            path: []
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldContain(d => d.Code == "FX015" && d.Message.Contains("sink.api") && d.Message.Contains("teleport"));
+    }
+
     private sealed class TempDirectory : IDisposable
     {
         public string Path { get; } = Directory.CreateTempSubdirectory("fixture-tests-").FullName;

@@ -44,6 +44,12 @@ public sealed class FixtureValidator
         Require(doc.Path, "FX007", "path", diagnostics);
         Require(doc.SanitizerAbsence, "FX008", "sanitizer_absence", diagnostics);
 
+        if (doc.Sink is { } sinkForVocab)
+        {
+            CheckVocab(sinkForVocab.Kind, Vocabularies.SinkKinds, "FX015", "sink.kind", diagnostics);
+            CheckVocab(sinkForVocab.Api,  Vocabularies.SinkApis,  "FX015", "sink.api",  diagnostics);
+        }
+
         if (doc.Path is { } path)
         {
             for (int i = 0; i < path.Count; i++)
