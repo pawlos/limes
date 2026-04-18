@@ -1,0 +1,107 @@
+vuln_id: imagesharp-3079-prefix
+fix_commit: 89face0b8930068f43db1064a0c00e2170993549
+fix_pr: https://github.com/SixLabors/ImageSharp/pull/3081
+description: PNG iTXt chunk decoder before the fix — attacker-crafted truncated
+             iTXt chunks reach data[zeroIndexKeyword+1] or
+             data.Slice(translatedKeywordStartIdx, translatedKeywordLength)
+             with attacker-controlled indices/lengths, causing
+             IndexOutOfRangeException or ArgumentOutOfRangeException.
+
+source:
+  kind: decoder_entry
+  method: SixLabors.ImageSharp.Formats.Png.PngDecoderCore.Decode
+  file: src__ImageSharp__Formats__Png__PngDecoderCore.cs
+  line: 168
+  role: source
+  tainted_value_in: stream
+  transformation: read_stream
+  tainted_value_out: stream
+  tainted_inputs:
+    - name: data
+      origin: chunk_body:iTXt
+
+sink:
+  kind: span_access
+  api: span_slice
+  method: SixLabors.ImageSharp.Formats.Png.PngDecoderCore.ReadInternationalTextChunk
+  file: src__ImageSharp__Formats__Png__PngDecoderCore.cs
+  line: 1959
+  role: sink
+  tainted_value_in: translatedKeywordLength
+  transformation: array_index
+  tainted_value_out: translatedKeyword
+  access_expression: "data.Slice(translatedKeywordStartIdx, translatedKeywordLength)"
+
+path:
+  - hop: 0
+    method: SixLabors.ImageSharp.Formats.Png.PngDecoderCore.Decode
+    file: src__ImageSharp__Formats__Png__PngDecoderCore.cs
+    line: 300
+    role: propagator
+    tainted_value_in: stream
+    transformation: identity
+    tainted_value_out: data
+    dispatch:
+      kind: direct
+      static_type: SixLabors.ImageSharp.Formats.Png.PngDecoderCore
+      resolved_targets: []
+      closure_boundary: false
+    note: Decode dispatches iTXt chunk body to ReadInternationalTextChunk.
+
+  - hop: 1
+    method: SixLabors.ImageSharp.Formats.Png.PngDecoderCore.ReadInternationalTextChunk
+    file: src__ImageSharp__Formats__Png__PngDecoderCore.cs
+    line: 1929
+    role: propagator
+    tainted_value_in: data
+    transformation: field_load
+    tainted_value_out: zeroIndexKeyword
+    dispatch:
+      kind: direct
+      static_type: System.ReadOnlySpan<byte>
+      resolved_targets: []
+      closure_boundary: false
+    note: zeroIndexKeyword = data.IndexOf((byte)0). Unchecked — can be reused for unsafe span accesses below.
+
+  - hop: 2
+    method: SixLabors.ImageSharp.Formats.Png.PngDecoderCore.ReadInternationalTextChunk
+    file: src__ImageSharp__Formats__Png__PngDecoderCore.cs
+    line: 1958
+    role: propagator
+    tainted_value_in: data
+    transformation: field_load
+    tainted_value_out: translatedKeywordLength
+    dispatch:
+      kind: direct
+      static_type: System.ReadOnlySpan<byte>
+      resolved_targets: []
+      closure_boundary: false
+    note: >
+      translatedKeywordLength = data[translatedKeywordStartIdx..].IndexOf((byte)0).
+      IndexOf returns -1 if not found — unchecked pre-fix, negative value can
+      reach the Slice sink below.
+
+sanitizer_absence:
+  - location: src__ImageSharp__Formats__Png__PngDecoderCore.cs:1935
+    expected_check: >
+      Before reading data[zeroIndexKeyword + 1] / data[zeroIndexKeyword + 2] / etc.,
+      verify zeroIndexKeyword + 4 <= data.Length. Fix adds:
+      'if (zeroIndexKeyword < 0 || zeroIndexKeyword + 4 > data.Length) return;'.
+    tainted_value: zeroIndexKeyword
+    present_pre_fix: false
+    present_post_fix: true
+    fix_evidence:
+      commit: 89face0b8930068f43db1064a0c00e2170993549
+      added_lines: src/ImageSharp/Formats/Png/PngDecoderCore.cs:1939-1943
+
+  - location: src__ImageSharp__Formats__Png__PngDecoderCore.cs:1959
+    expected_check: >
+      Before data.Slice(translatedKeywordStartIdx, translatedKeywordLength),
+      verify translatedKeywordLength >= 0. Fix adds:
+      'if (translatedKeywordLength < 0) return;'.
+    tainted_value: translatedKeywordLength
+    present_pre_fix: false
+    present_post_fix: true
+    fix_evidence:
+      commit: 89face0b8930068f43db1064a0c00e2170993549
+      added_lines: src/ImageSharp/Formats/Png/PngDecoderCore.cs:1969-1972
