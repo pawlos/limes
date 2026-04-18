@@ -1,0 +1,6 @@
+{
+  "source_path": "src/ImageSharp/Formats/Png/PngDecoderCore.cs",
+  "recovered_against_sha": "89face0b8930068f43db1064a0c00e2170993549",
+  "recovery_method": "git-show-at-fix-merge",
+  "sha256": "67d2731bf5afa809e1972ce27ba3165674afde0f3cc0ca478abe1ad36c06f15c"
+}
