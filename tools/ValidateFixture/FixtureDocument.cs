@@ -34,6 +34,7 @@ public sealed class PathNode
     [YamlMember(Alias = "tainted_inputs")] public List<TaintedInput>? TaintedInputs { get; init; }
     [YamlMember(Alias = "api")] public string? Api { get; init; }
     [YamlMember(Alias = "size_expression")] public string? SizeExpression { get; init; }
+    [YamlMember(Alias = "access_expression")] public string? AccessExpression { get; init; }
 }
 
 public sealed class Dispatch
