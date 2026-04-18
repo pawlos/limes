@@ -370,3 +370,14 @@ nullable dereference that is itself the interesting step (e.g., the null case
 is a taint escape), `field_load` may be under-specified. One option: add a
 `nullable_unwrap` transformation kind to distinguish the `Nullable<T>.Value`
 access from a plain struct field load. Not needed here; flagged for v1.
+
+### O5 — Compound sanitizer conditions (new in milestone A)
+
+Surfaced by `fixtures/imagesharp-3079-postfix/` and the schema-v0.2 extension
+documented in
+`docs/superpowers/specs/2026-04-17-imagesharp-3079-trace-design.md`. Fix checks
+of the form `if (A < 0 || A + N > data.Length) return;` are disjunctions of two
+conditions, but `establishes_bound` records one bound pair. Milestone A
+collapses such disjunctions to the meaningful single bound with the full check
+text preserved in `note:`. Deferred until an analyzer needs to read compound
+conditions mechanically.
