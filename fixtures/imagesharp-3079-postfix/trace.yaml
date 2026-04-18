@@ -1,0 +1,129 @@
+vuln_id: imagesharp-3079-postfix
+fix_commit: 89face0b8930068f43db1064a0c00e2170993549
+fix_pr: https://github.com/SixLabors/ImageSharp/pull/3081
+description: PNG iTXt chunk decoder after the fix — attacker-crafted truncated
+             iTXt chunks now return_early on insufficient data, guarding against
+             IndexOutOfRangeException on span slice.
+
+source:
+  kind: decoder_entry
+  method: SixLabors.ImageSharp.Formats.Png.PngDecoderCore.Decode
+  file: src__ImageSharp__Formats__Png__PngDecoderCore.cs
+  line: 168
+  role: source
+  tainted_value_in: stream
+  transformation: read_stream
+  tainted_value_out: stream
+  tainted_inputs:
+    - name: data
+      origin: chunk_body:iTXt
+
+sink:
+  kind: span_access
+  api: span_slice
+  method: SixLabors.ImageSharp.Formats.Png.PngDecoderCore.ReadInternationalTextChunk
+  file: src__ImageSharp__Formats__Png__PngDecoderCore.cs
+  line: 1974
+  role: sink
+  tainted_value_in: translatedKeywordLength
+  transformation: array_index
+  tainted_value_out: translatedKeyword
+  access_expression: "data.Slice(translatedKeywordStartIdx, translatedKeywordLength)"
+
+path:
+  - hop: 0
+    method: SixLabors.ImageSharp.Formats.Png.PngDecoderCore.Decode
+    file: src__ImageSharp__Formats__Png__PngDecoderCore.cs
+    line: 300
+    role: propagator
+    tainted_value_in: stream
+    transformation: identity
+    tainted_value_out: data
+    dispatch:
+      kind: direct
+      static_type: SixLabors.ImageSharp.Formats.Png.PngDecoderCore
+      resolved_targets: []
+      closure_boundary: false
+    note: Decode dispatches iTXt chunk body (chunk.Data.GetSpan()) to ReadInternationalTextChunk.
+
+  - hop: 1
+    method: SixLabors.ImageSharp.Formats.Png.PngDecoderCore.ReadInternationalTextChunk
+    file: src__ImageSharp__Formats__Png__PngDecoderCore.cs
+    line: 1934
+    role: propagator
+    tainted_value_in: data
+    transformation: field_load
+    tainted_value_out: zeroIndexKeyword
+    dispatch:
+      kind: direct
+      static_type: System.ReadOnlySpan<byte>
+      resolved_targets: []
+      closure_boundary: false
+    note: zeroIndexKeyword = data.IndexOf((byte)0). Locates the null terminator ending the English keyword.
+
+  - hop: 2
+    method: SixLabors.ImageSharp.Formats.Png.PngDecoderCore.ReadInternationalTextChunk
+    file: src__ImageSharp__Formats__Png__PngDecoderCore.cs
+    line: 1939
+    role: sanitizer
+    tainted_value_in: zeroIndexKeyword
+    transformation: identity
+    tainted_value_out: zeroIndexKeyword
+    dispatch:
+      kind: direct
+      static_type: SixLabors.ImageSharp.Formats.Png.PngDecoderCore
+      resolved_targets: []
+      closure_boundary: false
+    establishes_bound:
+      target: zeroIndexKeyword
+      relation: "<="
+      upper_bound: "data.Length - 4"
+    on_failure:
+      kind: return_early
+    note: >
+      The fix's first new check: 'if (zeroIndexKeyword < 0 || zeroIndexKeyword + 4 > data.Length) return;'.
+      The prior existing range-check already forces zeroIndexKeyword >= MinTextKeywordLength > 0,
+      so the disjunct 'zeroIndexKeyword < 0' is dead; the meaningful new contribution is
+      'zeroIndexKeyword + 4 <= data.Length'. Full check text preserved here per open question O5.
+      On failure, the method returns silently.
+
+  - hop: 3
+    method: SixLabors.ImageSharp.Formats.Png.PngDecoderCore.ReadInternationalTextChunk
+    file: src__ImageSharp__Formats__Png__PngDecoderCore.cs
+    line: 1968
+    role: propagator
+    tainted_value_in: data
+    transformation: field_load
+    tainted_value_out: translatedKeywordLength
+    dispatch:
+      kind: direct
+      static_type: System.ReadOnlySpan<byte>
+      resolved_targets: []
+      closure_boundary: false
+    note: translatedKeywordLength = data[translatedKeywordStartIdx..].IndexOf((byte)0). Can be -1 if no null terminator.
+
+  - hop: 4
+    method: SixLabors.ImageSharp.Formats.Png.PngDecoderCore.ReadInternationalTextChunk
+    file: src__ImageSharp__Formats__Png__PngDecoderCore.cs
+    line: 1969
+    role: sanitizer
+    tainted_value_in: translatedKeywordLength
+    transformation: identity
+    tainted_value_out: translatedKeywordLength
+    dispatch:
+      kind: direct
+      static_type: SixLabors.ImageSharp.Formats.Png.PngDecoderCore
+      resolved_targets: []
+      closure_boundary: false
+    establishes_bound:
+      target: translatedKeywordLength
+      relation: ">="
+      lower_bound: "0"
+    on_failure:
+      kind: return_early
+    note: >
+      The fix's second new check: 'if (translatedKeywordLength < 0) return;'.
+      Establishes translatedKeywordLength >= 0, guaranteeing the subsequent
+      data.Slice(startIdx, length) receives a non-negative count. On failure, the method returns.
+
+sanitizer_absence: []
