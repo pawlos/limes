@@ -30,4 +30,16 @@ public static class Vocabularies
     {
         "throw", "return_early", "clamp", "skip",
     }.ToFrozenSet(StringComparer.Ordinal);
+
+    public static readonly FrozenSet<string> SinkKinds = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "allocation", "span_access",
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    public static readonly FrozenSet<string> SinkApis = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "new_array", "array_pool_rent", "alloc_hglobal",
+        "memory_pool_rent", "stackalloc",
+        "span_index", "span_slice",
+    }.ToFrozenSet(StringComparer.Ordinal);
 }
