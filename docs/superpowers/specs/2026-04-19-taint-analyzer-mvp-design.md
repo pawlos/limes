@@ -58,6 +58,8 @@ Both new projects target net10.0, align with existing codebase conventions (name
        public List<string>? SourceMethods { get; init; }  // FQ method signatures
    }
    ```
+   If `VulnId` is omitted from rules, the analyzer emits traces without a `vuln_id` key (YAML-absent, not empty string); `--compare` ignores the field either way (see Validator `--compare` semantics). `SourceMethods` is required — missing or empty is a startup error.
+
    `SourceMethods` entries use a signature form compatible with Cecil's `MethodReference.FullName`: fully-qualified `Namespace.Type::Method(ParamType1,ParamType2,…)` with no spaces and canonical type names. Generic arity on type names uses Cecil's grave-accent-plus-integer convention before any angle-bracketed type arguments. Primitives are spelled as `System.Int32`, `System.Byte`, etc. This disambiguates overloads; in particular, the sync `Decode(BufferedReadStream,CancellationToken)` and the async `DecodeAsync(...)` must be named explicitly — milestone C rules target the sync overload only (deferring O3). Wildcards are **not** supported in MVP; each source must be listed verbatim. Unknown signatures error out at startup with an actionable message naming the nearest resolved candidates.
 
    Sink opcodes/targets and sanitizer IL-shape patterns are NOT in the rules file — they live in code (see `SinkShapes.cs`, `SanitizerShapes.cs`).
@@ -137,7 +139,7 @@ Checks, in order, emitting diagnostics on mismatch:
 - **FX060** `source mismatch`: `source.method` and `source.file:line` must be identical across the two fixtures.
 - **FX061** `sink mismatch`: `sink.method`, `sink.file:line`, `sink.kind`, `sink.api` must match.
 - **FX062** `sanitizer_absence mismatch`: array length must match; each entry's `tainted_value` must match; `location` must match file and be within ±2 lines of the ground-truth (the analyzer synthesizes "immediately before the sink-consuming hop"; the human-authored fixture may pick an adjacent line). `expected_check` is **not** compared — the analyzer emits a derived summary (`"<tainted_value> must be bounded before reaching <sink.api> at <sink.file>:<sink.line>"`), the fixture has author prose, and forcing substring equivalence is unjustified. When other FX062 criteria mismatch, `--compare` prints both `expected_check` values as context.
-- **FX063** `sanitizer hop mismatch`: for each sanitizer hop in the ground truth, the analyzer's output must have a sanitizer hop at the same `file:line` with matching `establishes_bound.target`, `establishes_bound.relation`, and whichever of `upper_bound`/`lower_bound` is set on the ground truth. `on_failure.kind` must match; `on_failure.exception` must match when `kind: throw`.
+- **FX063** `sanitizer hop mismatch`: for each sanitizer hop in the ground truth, the analyzer's output must have a sanitizer hop at the same `file:line` (exact, no tolerance — a sanitizer *is* a specific check at a specific line; a shifted match is a real mismatch worth surfacing, unlike `sanitizer_absence.location` which is a synthesized "near the sink" waypoint) with matching `establishes_bound.target`, `establishes_bound.relation`, and whichever of `upper_bound`/`lower_bound` is set on the ground truth. `on_failure.kind` must match; `on_failure.exception` must match when `kind: throw`.
 
 Intermediate propagator hops are NOT compared — `--compare` reports the count delta as an informational note, never as a failure.
 
@@ -159,6 +161,8 @@ Example: `FX061 sink mismatch: line expected=1600 actual=1602 at src__ImageSharp
    - `SanitizerShapesTests` — compare-and-throw with both branch directions (negated vs. non-negated operator) produces the correct `establishes_bound`; throw-helper predicate accepts `Throw*` + `[DoesNotReturn]` methods and rejects plain void methods.
    - `TaintWalkerTests` — on a hand-crafted assembly: taint flows through `stfld`/`ldfld` on `this`; taint survives cross-method via the summary; sanitizer hop recorded but taint continues; sink fires when tainted size reaches `newarr`.
    - `TraceEmitterTests` — round-trips a synthetic `HopRecord` list to YAML matching schema v0.2.
+
+   Test-fixture assemblies are shared across `CallGraphTests`, `SinkShapesTests`, `SanitizerShapesTests`, and `TaintWalkerTests`: a single `tools/TaintAnalyzer.Tests/Fixtures/` directory holds the pre-compiled synthetic `.dll`+`.pdb` pairs plus their C# source for reproducibility. The fixtures project is a sibling csproj (`TaintAnalyzer.Tests.Fixtures.csproj`) built as part of the test run — authored once when first needed, extended per test class as later components require new IL shapes. `AssemblyContextTests` uses the smallest fixture; richer IL shapes accrete in the same directory.
 2. `ValidateFixture --compare` accepts valid input pairs; new tests (FX060/FX061/FX062/FX063) covering mismatch cases all pass, including the metadata-field exemption and the ±2-line tolerance on `sanitizer_absence.location`.
 3. `TaintAnalyzer <ImageSharp.dll-built-from-pre-fix-parent> --rules fixtures/imagesharp-3074-prefix/rules.yaml --output /tmp/out.yaml`, then `ValidateFixture --compare fixtures/imagesharp-3074-prefix/trace.yaml /tmp/out.yaml` → exit 0.
 4. Same on post-fix. Compare against `fixtures/imagesharp-3074-postfix/trace.yaml` → exit 0.
@@ -206,7 +210,7 @@ Example: `FX061 sink mismatch: line expected=1600 actual=1602 at src__ImageSharp
 8. `TraceEmitter.cs` (including pre-fix `sanitizer_absence` synthesis) + tests.
 9. CLI wiring for `TaintAnalyzer` (stdout default, exit codes).
 10. Validator `--compare` mode (metadata-field exemption, ±2-line tolerance, unified diagnostic format) + FX060/FX061/FX062/FX063 tests.
-11. Build script: `scripts/materialize-imagesharp-3074.sh` — `git archive` extraction for the two pinned commits, `dotnet build -c Debug`.
+11. Build script: `scripts/materialize-imagesharp-3074.sh` — `git archive` extraction for the two pinned commits, `dotnet build -c Debug`. Add `artifacts/` to `.gitignore` in the same step (spec-success criterion #6 requires it to be gitignored; the build script is what first creates the directory).
 12. Rules files: `fixtures/imagesharp-3074-{prefix,postfix}/rules.yaml`.
 13. End-to-end: run analyzer on both builds; compare against ground-truth fixtures; both exit 0.
 14. **Bonus check:** run analyzer against `fixtures/imagesharp-3079-prefix/` built artifacts; compare → decide #3079-is-covered vs. milestone-D-input.
@@ -226,3 +230,8 @@ Example: `FX061 sink mismatch: line expected=1600 actual=1602 at src__ImageSharp
   - **Operational concerns.** Documented that the shared clone is shallow; replaced `git worktree`/`git clone` materialization (policy-violating or shallowness-propagating) with `git archive | tar -x` per commit. Added rules-file location convention.
   - **Success criteria.** Expanded test plan for `TaintAnalyzer.Tests` (seven named test classes, each with a scope statement). Added bonus criterion #7 for the #3079 reproduction check.
   - **Execution plan outline.** Added rules-file authoring step and the #3079 bonus step; clarified build-script mechanism.
+- **2026-04-23 (clarifications, same day).** Follow-up tightening after pre-plan review:
+  - `RulesDocument.VulnId` omitted-rules behavior specified (emit no `vuln_id` key; `SourceMethods` missing/empty is a startup error).
+  - FX063 rationale for no line-tolerance made explicit (sanitizer-hop line is the check; shifted match is a real defect).
+  - `tools/TaintAnalyzer.Tests/Fixtures/` shared-fixture-assemblies convention documented (single sibling csproj, authored once, extended per test class).
+  - `artifacts/` `.gitignore` entry folded into execution-plan step 11 (build-script step).
