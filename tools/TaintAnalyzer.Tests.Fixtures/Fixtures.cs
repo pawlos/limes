@@ -86,3 +86,28 @@ public static class SanitizerFixtures
     // Shape D: no sanitizer — straight-line code, for negative tests.
     public static int NoSanitizer(int x) => x * 2;
 }
+
+// Each method has exactly one conditional branch, all with `x` as the left operand and `y` as the right,
+// a throw-helper on the failure side. The matcher should produce (target=x, relation/upper|lower=y).
+public static class SanitizerBoundsFixtures
+{
+    // Compiler-negated / Roslyn-idiomatic forms (semantic operator shown in the C# source;
+    // Roslyn typically emits the equivalent-but-reversed IL opcode branching to the THROW body).
+    public static void GtThrow(int x, int y) { if (x >  y) ThrowHelpers.ThrowOutOfRange(nameof(x)); }  // safe: x <= y
+    public static void LtThrow(int x, int y) { if (x <  y) ThrowHelpers.ThrowOutOfRange(nameof(x)); }  // safe: x >= y
+    public static void GeThrow(int x, int y) { if (x >= y) ThrowHelpers.ThrowOutOfRange(nameof(x)); }  // safe: x <  y
+    public static void LeThrow(int x, int y) { if (x <= y) ThrowHelpers.ThrowOutOfRange(nameof(x)); }  // safe: x >  y
+    public static void EqThrow(int x, int y) { if (x == y) ThrowHelpers.ThrowOutOfRange(nameof(x)); }  // safe: x != y
+    public static void NeThrow(int x, int y) { if (x != y) ThrowHelpers.ThrowOutOfRange(nameof(x)); }  // safe: x == y
+
+    // Explicit-else form (branch-target = throw).
+    public static void GtThrowElse(int x, int y)
+    {
+        if (x <= y) { /* safe */ }
+        else { ThrowHelpers.ThrowOutOfRange(nameof(x)); }
+    }
+
+    // Zero-equality form: `if (x == 0) throw`. Debug IL: `ldarg.0; ldc.i4.0; ceq; ...; brfalse SAFE;`.
+    // The inner ldc.i4.0 is an operand of `==`, not a NOT-negation.
+    public static void EqZeroThrow(int x) { if (x == 0) ThrowHelpers.ThrowOutOfRange(nameof(x)); }
+}

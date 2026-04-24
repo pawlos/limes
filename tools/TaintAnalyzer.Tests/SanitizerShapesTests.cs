@@ -109,6 +109,90 @@ public class SanitizerShapesTests
         anyCondBranch.ShouldBeNull();
     }
 
+    // --- Full matcher: compare-and-throw / compare-and-return-early (Task 7) ---
+
+    [Theory]
+    [InlineData("GtThrow", "<=", "y",  null)]   // safe: x <= y → relation "<=", upper_bound y
+    [InlineData("LtThrow", ">=", null, "y")]    // safe: x >= y → relation ">=", lower_bound y
+    [InlineData("GeThrow", "<",  "y",  null)]   // safe: x <  y → relation "<",  upper_bound y
+    [InlineData("LeThrow", ">",  null, "y")]    // safe: x >  y → relation ">",  lower_bound y
+    [InlineData("EqThrow", "!=", "y",  null)]   // safe: x != y → relation "!=", upper_bound y (single-value convention)
+    [InlineData("NeThrow", "==", "y",  null)]   // safe: x == y → relation "==", upper_bound y
+    public void MatchCompareAndThrow_EmitsCorrectBound(
+        string fixtureName, string expectedRelation, string? expectedUpper, string? expectedLower)
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = ctx.AllMethods().First(md =>
+            md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.SanitizerBoundsFixtures"
+            && md.Name == fixtureName);
+
+        var match = SanitizerShapes.MatchCompareAndThrow(m);
+
+        match.ShouldNotBeNull();
+        match!.OnFailure.Kind.ShouldBe(FailureKind.Throw);
+        match.OnFailure.Exception.ShouldBe("System.ArgumentOutOfRangeException");
+        match.EstablishesBound.Target.ShouldBe("x");
+        match.EstablishesBound.Relation.ShouldBe(expectedRelation);
+        match.EstablishesBound.UpperBound.ShouldBe(expectedUpper);
+        match.EstablishesBound.LowerBound.ShouldBe(expectedLower);
+    }
+
+    [Fact]
+    public void MatchCompareAndThrow_ExplicitElse_FlipsDirectionCorrectly()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.SanitizerBoundsFixtures::GtThrowElse(System.Int32,System.Int32)");
+
+        var match = SanitizerShapes.MatchCompareAndThrow(m);
+
+        match.ShouldNotBeNull();
+        // Same semantic end result as GtThrow: safe side says x <= y.
+        match!.EstablishesBound.Relation.ShouldBe("<=");
+        match.EstablishesBound.Target.ShouldBe("x");
+        match.EstablishesBound.UpperBound.ShouldBe("y");
+    }
+
+    [Fact]
+    public void MatchCompareAndReturnEarly_EmitsReturnEarlyHop()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.SanitizerFixtures::ReturnEarlyOnNegative(System.Int32)");
+
+        var match = SanitizerShapes.MatchCompareAndReturnEarly(m);
+
+        match.ShouldNotBeNull();
+        match!.OnFailure.Kind.ShouldBe(FailureKind.ReturnEarly);
+        match.EstablishesBound.Target.ShouldBe("x");
+        match.EstablishesBound.Relation.ShouldBe(">=");
+        match.EstablishesBound.LowerBound.ShouldBe("0");
+    }
+
+    [Fact]
+    public void MatchCompareAndThrow_NoSanitizer_ReturnsNull()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.SanitizerFixtures::NoSanitizer(System.Int32)");
+
+        SanitizerShapes.MatchCompareAndThrow(m).ShouldBeNull();
+    }
+
+    [Fact]
+    public void MatchCompareAndThrow_EqZeroShape_EmitsNotEqualBound()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.SanitizerBoundsFixtures::EqZeroThrow(System.Int32)");
+
+        var match = SanitizerShapes.MatchCompareAndThrow(m);
+
+        // Semantic: C# `if (x == 0) throw;` — safe side says `x != 0`.
+        // Target is `x`, relation is `!=`, upper_bound is `0` (single-value convention per spec).
+        match.ShouldNotBeNull();
+        match!.EstablishesBound.Target.ShouldBe("x");
+        match.EstablishesBound.Relation.ShouldBe("!=");
+        match.EstablishesBound.UpperBound.ShouldBe("0");
+        match.OnFailure.Kind.ShouldBe(FailureKind.Throw);
+    }
+
     private static Instruction FindConditionalBranch(MethodDefinition m)
         => m.Body.Instructions.First(i => IsConditionalBranch(i.OpCode));
 
