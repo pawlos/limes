@@ -140,4 +140,56 @@ public class TaintWalkerTests
         var zero = walker.Walk(m, 0b0);
         zero.ShouldNotBeSameAs(first);
     }
+
+    [Fact]
+    public void Walk_WithSanitizerOnPath_RecordsSanitizerHopAndStillReachesSink()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.SanitizerInContext::SanitizedAllocate(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.ReachedSink.ShouldBeTrue();
+        summary.Hops.ShouldContain(h => h.Role == HopRole.Sanitizer);
+        var sanitizerHop = summary.Hops.First(h => h.Role == HopRole.Sanitizer);
+        sanitizerHop.EstablishesBound.ShouldNotBeNull();
+        sanitizerHop.EstablishesBound!.Relation.ShouldBe("<=");
+        sanitizerHop.OnFailure.ShouldNotBeNull();
+        sanitizerHop.OnFailure!.Kind.ShouldBe(FailureKind.Throw);
+    }
+
+    [Fact]
+    public void Walk_PreFix_SynthesizesSanitizerAbsence()
+    {
+        // The intra-method allocation fixture from Task 9 has no sanitizer on the path; the walker
+        // should emit exactly one sanitizer_absence entry.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.WalkerFixtures::IntraMethodAllocation(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.Absences.ShouldHaveSingleItem();
+        var absence = summary.Absences[0];
+        absence.TaintedValue.ShouldNotBeNullOrEmpty();
+        absence.ExpectedCheck.ShouldContain("must be bounded before reaching");
+    }
+
+    [Fact]
+    public void GetSequencePoint_UsesFallbackForHiddenInstructions()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.WalkerFixtures::IntraMethodAllocation(System.Int32)")!;
+
+        // `nop` in Debug IL may or may not have a sequence point. Regardless, GetSequencePoint must
+        // never return null for the *first* instruction of a non-trivial Debug body — the method-prologue
+        // sequence point falls on `ldarg`/`nop`/`stloc`.
+        var first = m.Body.Instructions.First();
+        var sp = ctx.GetSequencePoint(m, first);
+        sp.ShouldNotBeNull();
+        sp!.StartLine.ShouldBeGreaterThan(0);
+    }
 }

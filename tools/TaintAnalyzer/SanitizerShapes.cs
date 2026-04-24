@@ -193,7 +193,12 @@ public static class SanitizerShapes
             sawValueLoad = true;
             return;
         }
-        // Arithmetic / logic — signals the arm is doing real computation (normal body, not a guard).
+        // Arithmetic / logic / non-trivial ops — signals the arm is doing real computation (normal
+        // body, not a guard). Object/array allocation opcodes are included because an arm that
+        // allocates (`newarr`, `newobj`) is clearly not a short-circuit early-return guard; without
+        // this, the normal-return path `ldarg; newarr; stloc; br; ret` would be falsely classified
+        // as ReturnEarly because `ldarg` sets sawValueLoad and `newarr` (not in the arithmetic list)
+        // would leave sawArithmetic=false.
         if (code is Code.Add or Code.Add_Ovf or Code.Add_Ovf_Un
                  or Code.Sub or Code.Sub_Ovf or Code.Sub_Ovf_Un
                  or Code.Mul or Code.Mul_Ovf or Code.Mul_Ovf_Un
@@ -204,7 +209,8 @@ public static class SanitizerShapes
                  or Code.Ceq or Code.Cgt or Code.Cgt_Un or Code.Clt or Code.Clt_Un
                  or Code.Conv_I or Code.Conv_I1 or Code.Conv_I2 or Code.Conv_I4 or Code.Conv_I8
                  or Code.Conv_Ovf_I or Code.Conv_Ovf_U or Code.Conv_U or Code.Conv_U1 or Code.Conv_U2
-                 or Code.Conv_U4 or Code.Conv_U8 or Code.Conv_R4 or Code.Conv_R8 or Code.Conv_R_Un)
+                 or Code.Conv_U4 or Code.Conv_U8 or Code.Conv_R4 or Code.Conv_R8 or Code.Conv_R_Un
+                 or Code.Newarr or Code.Newobj)
         {
             sawArithmetic = true;
         }

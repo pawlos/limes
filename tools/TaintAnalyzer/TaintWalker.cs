@@ -69,6 +69,36 @@ public sealed class TaintWalker
             };
         }
 
+        var sanitizerMatch = SanitizerShapes.MatchCompareAndThrow(method)
+                          ?? SanitizerShapes.MatchCompareAndReturnEarly(method);
+        HopRecord? pendingSanitizerHop = null;
+        if (sanitizerMatch is not null)
+        {
+            // Emit at the IL offset of the comparison's conditional branch.
+            var branchIns = method.Body.Instructions.FirstOrDefault(i => i.Offset == sanitizerMatch.ComparisonIlOffset);
+            var sp = branchIns is null ? null : _context.GetSequencePoint(method, branchIns);
+            pendingSanitizerHop = new HopRecord
+            {
+                Hop = 0,                         // patched after the walk below so hops are contiguous
+                Method = $"{method.DeclaringType.FullName}.{method.Name}",
+                File = sp is null ? "" : Path.GetFileName(sp.Document.Url),
+                Line = sp?.StartLine ?? 0,
+                Role = HopRole.Sanitizer,
+                TaintedValueIn = sanitizerMatch.EstablishesBound.Target,
+                Transformation = "identity",
+                TaintedValueOut = sanitizerMatch.EstablishesBound.Target,
+                EstablishesBound = sanitizerMatch.EstablishesBound,
+                OnFailure = sanitizerMatch.OnFailure,
+                Dispatch = new ResolvedDispatch
+                {
+                    Kind = "direct",
+                    StaticType = method.DeclaringType.FullName,
+                    ResolvedTargets = Array.Empty<string>(),
+                    ClosureBoundary = false,
+                },
+            };
+        }
+
         foreach (var ins in method.Body.Instructions)
         {
             if (HandleSinkMatch(method, ins, state, hops, ref hopCounter))
@@ -81,6 +111,42 @@ public sealed class TaintWalker
             StepInstruction(method, ins, state, newlyTaintedFields);
         }
 
+        if (pendingSanitizerHop is not null)
+        {
+            // Insert the sanitizer hop at a position that comes before the sink but after the setup
+            // propagators. For MVP, put it right before the last hop (the sink).
+            int insertAt = hops.Count > 0 && hops[^1].Role == HopRole.Sink ? hops.Count - 1 : hops.Count;
+            hops.Insert(insertAt, pendingSanitizerHop with { Hop = insertAt });
+            // Renumber.
+            for (int i = 0; i < hops.Count; i++) hops[i] = hops[i] with { Hop = i };
+        }
+
+        var absences = new List<EmittedSanitizerAbsence>();
+        if (pendingSanitizerHop is null && reachedSink && hops.Count > 0)
+        {
+            // Point at the propagator hop immediately preceding the sink, per spec.
+            var sinkHop = hops.Last(h => h.Role == HopRole.Sink);
+            var sinkIdx = hops.IndexOf(sinkHop);
+            var preSinkIdx = Math.Max(0, sinkIdx - 1);
+            var preSink = hops[preSinkIdx];
+            var sinkFile = sinkHop.File;
+            var sinkLine = sinkHop.Line;
+            var sinkApiDisplay = sinkHop.SinkApi switch
+            {
+                SinkApi.NewArray => "new_array",
+                SinkApi.ArrayPoolRent => "array_pool_rent",
+                SinkApi.SpanSlice => "span_slice",
+                SinkApi.SpanIndex => "span_index",
+                _ => "unknown",
+            };
+            absences.Add(new EmittedSanitizerAbsence
+            {
+                Location = $"{preSink.File}:{preSink.Line}",
+                TaintedValue = preSink.TaintedValueOut,
+                ExpectedCheck = $"{preSink.TaintedValueOut} must be bounded before reaching {sinkApiDisplay} at {sinkFile}:{sinkLine}",
+            });
+        }
+
         return new MethodSummary
         {
             MethodFullName = method.FullName,
@@ -88,7 +154,7 @@ public sealed class TaintWalker
             ReturnsTainted = false,
             NewlyTaintedThisFields = newlyTaintedFields.ToArray(),
             Hops = hops,
-            Absences = Array.Empty<EmittedSanitizerAbsence>(),
+            Absences = absences,
             ReachedSink = reachedSink,
         };
     }

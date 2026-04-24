@@ -216,6 +216,16 @@ public sealed class FieldTaintHost
     }
 }
 
+public sealed class SanitizerInContext
+{
+    // `n` tainted → sanitizer hop → sink. Sanitizer does not clear taint (per spec), so sink still fires.
+    public byte[] SanitizedAllocate(int n)
+    {
+        if (n > 1024) ThrowHelpers.ThrowOutOfRange(nameof(n));
+        return new byte[n];
+    }
+}
+
 public sealed class CrossMethodHost
 {
     public int stored;

@@ -30,7 +30,7 @@ public sealed class OnFailure
     public string? Exception { get; init; }
 }
 
-public sealed class HopRecord
+public sealed record HopRecord
 {
     public required int Hop { get; init; }
     public required string Method { get; init; }
