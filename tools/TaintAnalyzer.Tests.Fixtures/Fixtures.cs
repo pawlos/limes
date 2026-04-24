@@ -183,3 +183,35 @@ public static class WalkerFixtures
         return new byte[16];
     }
 }
+
+public sealed class FieldTaintHost
+{
+    public int payloadSize;
+    public int safeConstant = 16;
+
+    // Stores tainted `size` to `this.payloadSize`. Walker should mark `payloadSize` as newly tainted on `this`.
+    public void StoreToField(int size)
+    {
+        this.payloadSize = size;
+    }
+
+    // Reads `this.payloadSize` (pre-tainted by caller's summary) and uses it at a sink.
+    public byte[] AllocateFromField()
+    {
+        return new byte[this.payloadSize];
+    }
+
+    // Reads `this.safeConstant` — should not be tainted since no caller has tainted it.
+    public byte[] AllocateFromSafeConstant()
+    {
+        return new byte[this.safeConstant];
+    }
+
+    // Static variant: receives a tainted `FieldTaintHost` and loads its `payloadSize` to allocate.
+    // Exercises the "receiver slot is tainted → ldfld propagates taint" path distinct from
+    // the `this.field` path covered elsewhere.
+    public static byte[] AllocateFromTaintedHost(FieldTaintHost host)
+    {
+        return new byte[host.payloadSize];
+    }
+}

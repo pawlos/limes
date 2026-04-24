@@ -11,14 +11,18 @@ public sealed class TaintWalker
     public TaintWalker(AssemblyContext context) => _context = context;
 
     public MethodSummary Walk(MethodDefinition method, int taintedParamBitmask)
+        => WalkWithSeed(method, taintedParamBitmask, taintedThisFields: Array.Empty<string>());
+
+    public MethodSummary WalkWithSeed(MethodDefinition method, int taintedParamBitmask, IReadOnlyCollection<string> taintedThisFields)
     {
         var key = (method.FullName, taintedParamBitmask);
-        if (_memo.TryGetValue(key, out var cached))
+        // Memo keyed only by method+param bitmask for MVP. Seeded this-fields are a caller-specific
+        // refinement; we accept the cache collision risk for now — Task 11 revisits.
+        if (_memo.TryGetValue(key, out var cached) && taintedThisFields.Count == 0)
         {
             return cached;
         }
 
-        // Sentinel to break recursion on cyclic call graphs. Task 11 refines this.
         var placeholder = new MethodSummary
         {
             MethodFullName = method.FullName,
@@ -29,22 +33,27 @@ public sealed class TaintWalker
             Absences = Array.Empty<EmittedSanitizerAbsence>(),
             ReachedSink = false,
         };
-        _memo[key] = placeholder;
+        if (taintedThisFields.Count == 0) _memo[key] = placeholder;
 
-        var summary = WalkMethodBody(method, taintedParamBitmask);
-        _memo[key] = summary;
+        var summary = WalkMethodBody(method, taintedParamBitmask, taintedThisFields);
+        if (taintedThisFields.Count == 0) _memo[key] = summary;
         return summary;
     }
 
-    private MethodSummary WalkMethodBody(MethodDefinition method, int taintedParamBitmask)
+    private MethodSummary WalkMethodBody(
+        MethodDefinition method,
+        int taintedParamBitmask,
+        IReadOnlyCollection<string> taintedThisFields)
     {
         var state = new TaintState();
         SeedArgumentTaint(method, taintedParamBitmask, state);
+        SeedThisFieldTaint(method, taintedThisFields, state);
 
         var hops = new List<HopRecord>();
         bool reachedSink = false;
         // Hop counter resets per method; Task 11 refines to aggregate hops across the call chain.
         int hopCounter = 0;
+        var newlyTaintedFields = new HashSet<string>(StringComparer.Ordinal);
 
         if (method.Body is null)
         {
@@ -69,20 +78,31 @@ public sealed class TaintWalker
                 // methods could in principle produce additional sink records.
             }
 
-            StepInstruction(method, ins, state);
+            StepInstruction(method, ins, state, newlyTaintedFields);
         }
 
-        bool returnsTainted = false;  // refined in Task 11
         return new MethodSummary
         {
             MethodFullName = method.FullName,
             TaintedParamBitmask = taintedParamBitmask,
-            ReturnsTainted = returnsTainted,
-            NewlyTaintedThisFields = Array.Empty<string>(),
+            ReturnsTainted = false,
+            NewlyTaintedThisFields = newlyTaintedFields.ToArray(),
             Hops = hops,
             Absences = Array.Empty<EmittedSanitizerAbsence>(),
             ReachedSink = reachedSink,
         };
+    }
+
+    private static void SeedThisFieldTaint(MethodDefinition method, IReadOnlyCollection<string> fields, TaintState state)
+    {
+        if (!method.HasThis || fields.Count == 0) return;
+        var declaringType = method.DeclaringType;
+        foreach (var name in fields)
+        {
+            var fd = declaringType.Fields.FirstOrDefault(f => f.Name == name);
+            if (fd is null) continue;
+            state.ThisFields[fd.FullName] = StackSlot.TaintedWith(name);
+        }
     }
 
     private static void SeedArgumentTaint(MethodDefinition method, int bitmask, TaintState state)
@@ -138,7 +158,7 @@ public sealed class TaintWalker
     // Handles a single IL instruction by updating taint state. Called AFTER HandleSinkMatch;
     // at sink instructions, the operand stack still contains the critical arguments when matchers run.
     // This ordering is invariant and relied upon by cross-method analysis (Task 11).
-    private static void StepInstruction(MethodDefinition method, Instruction ins, TaintState state)
+    private static void StepInstruction(MethodDefinition method, Instruction ins, TaintState state, HashSet<string> newlyTaintedFields)
     {
         switch (ins.OpCode.Code)
         {
@@ -306,6 +326,72 @@ public sealed class TaintWalker
                     break;
                 }
 
+            case Code.Ldfld:
+                {
+                    var fr = (FieldReference)ins.Operand;
+                    var receiver = state.Stack.Pop();
+                    if (receiver.Tainted)
+                    {
+                        // Taint propagates on field-load from a tainted struct/object.
+                        state.Stack.Push(StackSlot.TaintedWith($"{receiver.Provenance}.{fr.Name}"));
+                        break;
+                    }
+                    // Receiver is `this` (Ldarg.0) whose per-field taint map we track:
+                    if (state.ThisFields.TryGetValue(fr.FullName, out var fieldSlot) && fieldSlot.Tainted)
+                    {
+                        state.Stack.Push(fieldSlot);
+                        break;
+                    }
+                    state.Stack.Push(StackSlot.Untainted);
+                    break;
+                }
+
+            case Code.Ldsfld:
+                {
+                    var fr = (FieldReference)ins.Operand;
+                    if (state.StaticFields.TryGetValue(fr.FullName, out var sfld) && sfld.Tainted)
+                    {
+                        state.Stack.Push(sfld);
+                    }
+                    else
+                    {
+                        state.Stack.Push(StackSlot.Untainted);
+                    }
+                    break;
+                }
+
+            case Code.Stfld:
+                {
+                    var fr = (FieldReference)ins.Operand;
+                    var value = state.Stack.Pop();
+                    var receiver = state.Stack.Pop();
+
+                    // Mark the field tainted on `this` when:
+                    //   - value is tainted AND
+                    //   - receiver is `this` (either explicitly provenance=="this" OR the receiver
+                    //     came from an ldarg.0 whose slot we haven't specifically tainted).
+                    bool receiverIsThisRooted = receiver.Provenance == "this" ||
+                        (!receiver.Tainted && InstructionIsLdarg0(FindStfldReceiverSource(ins)));
+
+                    if (value.Tainted && receiverIsThisRooted)
+                    {
+                        state.ThisFields[fr.FullName] = StackSlot.TaintedWith(fr.Name);
+                        newlyTaintedFields.Add(fr.Name);
+                    }
+                    break;
+                }
+
+            case Code.Stsfld:
+                {
+                    var fr = (FieldReference)ins.Operand;
+                    var value = state.Stack.Pop();
+                    if (value.Tainted)
+                    {
+                        state.StaticFields[fr.FullName] = StackSlot.TaintedWith($"{fr.DeclaringType.Name}.{fr.Name}");
+                    }
+                    break;
+                }
+
             default:
                 // Conservative fallback: pop the operand stack to the opcode's declared pop count,
                 // then push untainted to the declared push count.
@@ -313,6 +399,26 @@ public sealed class TaintWalker
                 break;
         }
     }
+
+    // Recovers the instruction that pushed the `stfld`'s receiver. Stack pattern at the call site:
+    //   ..., obj, value, <stfld>
+    // In Debug-mode linear IL with Roslyn-generated `this.F = simpleExpr`, the receiver push is
+    // stfld.Previous.Previous (with intervening nops skipped). Multi-instruction value expressions
+    // (e.g., `this.F = expr1 + expr2`) are OUT OF SCOPE — the two-step walk would wrongly identify
+    // the `add` (the expression's tail instruction) as the receiver source. MVP scope accepts this
+    // limitation since #3074/#3079 use simple `this.F = methodCall()` shapes.
+    private static Instruction? FindStfldReceiverSource(Instruction stfld)
+    {
+        var a = stfld.Previous;
+        if (a is null) return null;
+        var b = a.Previous;
+        // Skip over nop instructions in case Roslyn emitted debug nops between ldarg.0 and ldarg.1.
+        while (b != null && b.OpCode.Code == Code.Nop) b = b.Previous;
+        return b;
+    }
+
+    private static bool InstructionIsLdarg0(Instruction? ins)
+        => ins is not null && ins.OpCode.Code is Code.Ldarg_0;
 
     private static void ApplyStackBehavior(Instruction ins, TaintState state)
     {
