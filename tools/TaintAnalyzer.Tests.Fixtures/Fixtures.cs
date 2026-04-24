@@ -166,3 +166,20 @@ public static class CallGraphFixtures
         return b.Compute(n);
     }
 }
+
+public static class WalkerFixtures
+{
+    // Straight-line taint: tainted param `size` flows through a local into `new byte[size]`.
+    public static byte[] IntraMethodAllocation(int size)
+    {
+        int n = size + 4;                // arithmetic transformation
+        byte[] buf = new byte[n];        // newarr sink, tainted size
+        return buf;
+    }
+
+    // Negative: no tainted input reaches newarr.
+    public static byte[] IntraMethodNoTaint()
+    {
+        return new byte[16];
+    }
+}
