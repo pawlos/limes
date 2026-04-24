@@ -13,3 +13,6 @@ obj/
 # Tools
 TestResults/
 *.log
+
+# Materialized ImageSharp source trees and their build outputs
+artifacts/

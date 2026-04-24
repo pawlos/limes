@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>TaintAnalyzer.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="Shouldly" Version="4.3.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TaintAnalyzer\TaintAnalyzer.csproj" />
+    <ProjectReference Include="..\TaintAnalyzer.Tests.Fixtures\TaintAnalyzer.Tests.Fixtures.csproj"
+                      ReferenceOutputAssembly="false"
+                      Private="false" />
+  </ItemGroup>
+
+  <Target Name="CopyFixtureAssembly" AfterTargets="Build">
+    <ItemGroup>
+      <FixtureFiles Include="..\TaintAnalyzer.Tests.Fixtures\bin\$(Configuration)\$(TargetFramework)\TaintAnalyzer.Tests.Fixtures.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FixtureFiles)"
+          DestinationFolder="$(OutDir)Fixtures\"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
