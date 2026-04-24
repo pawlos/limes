@@ -111,3 +111,58 @@ public static class SanitizerBoundsFixtures
     // The inner ldc.i4.0 is an operand of `==`, not a NOT-negation.
     public static void EqZeroThrow(int x) { if (x == 0) ThrowHelpers.ThrowOutOfRange(nameof(x)); }
 }
+
+// Abstract base + two concrete subclasses for CHA tests.
+public abstract class Reader
+{
+    public abstract int Read(byte[] buffer, int offset, int count);
+}
+
+public sealed class BufferedReader : Reader       // sealed — CHA closure to exactly one target
+{
+    public override int Read(byte[] buffer, int offset, int count) => count;
+}
+
+public sealed class NetworkReader : Reader        // a second subclass, also sealed
+{
+    public override int Read(byte[] buffer, int offset, int count) => 0;
+}
+
+// Non-sealed non-abstract concrete class — external assemblies could subclass it,
+// so a virtual call with this as the receiver type sets closure_boundary=true.
+public class OpenBase
+{
+    public virtual int Compute(int x) => x + 1;
+}
+
+public static class CallGraphFixtures
+{
+    // Virtual call where the local is typed as the sealed subclass — flow-type narrowing
+    // should pick this up and resolve to exactly one target (`BufferedReader.Read`).
+    public static int ReadViaNarrowedLocal(byte[] buf)
+    {
+        BufferedReader r = new BufferedReader();   // local typed as sealed subclass
+        return r.Read(buf, 0, buf.Length);
+    }
+
+    // Virtual call where the local is typed as the abstract base — no narrowing.
+    // CHA closure within the analyzed assembly must find both overrides; since the
+    // analyzed assembly contains both, closure_boundary = false and two resolved targets.
+    public static int ReadViaAbstract(Reader r, byte[] buf)
+        => r.Read(buf, 0, buf.Length);
+
+    // Direct (static) call.
+    public static int DirectCall()
+        => SimpleShapes.Identity(1);
+
+    // Virtual call into an external type (System.IO.Stream.ReadByte) — unresolvable within assembly.
+    public static int ExternalVirtualCall(System.IO.Stream s) => s.ReadByte();
+
+    // Virtual call where receiver is typed as a non-sealed non-abstract class.
+    // Subclassing from external assemblies is possible → closure_boundary should be true.
+    public static int CallViaOpenBase(int n)
+    {
+        OpenBase b = new OpenBase();
+        return b.Compute(n);
+    }
+}
