@@ -215,3 +215,35 @@ public sealed class FieldTaintHost
         return new byte[host.payloadSize];
     }
 }
+
+public sealed class CrossMethodHost
+{
+    public int stored;
+
+    // Cross-method: caller passes tainted `n` to helper; helper stores to this.stored.
+    public void CrossMethodStore(int n)
+    {
+        StoreHelper(n);
+    }
+
+    public void StoreHelper(int n)
+    {
+        this.stored = n;
+    }
+
+    // Cross-method: caller reads this.stored (pre-tainted via StoreHelper) and uses at sink.
+    public byte[] CrossMethodAllocate()
+    {
+        StoreHelper(1);         // untainted constant; stored becomes untainted in isolation
+        return new byte[this.stored];
+    }
+
+    // Tainted return: helper returns its tainted arg; caller uses the return at a sink.
+    public byte[] CrossMethodTaintedReturn(int n)
+    {
+        int m = Echo(n);
+        return new byte[m];
+    }
+
+    private static int Echo(int x) => x;
+}

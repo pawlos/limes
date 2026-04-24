@@ -158,7 +158,7 @@ public sealed class TaintWalker
     // Handles a single IL instruction by updating taint state. Called AFTER HandleSinkMatch;
     // at sink instructions, the operand stack still contains the critical arguments when matchers run.
     // This ordering is invariant and relied upon by cross-method analysis (Task 11).
-    private static void StepInstruction(MethodDefinition method, Instruction ins, TaintState state, HashSet<string> newlyTaintedFields)
+    private void StepInstruction(MethodDefinition method, Instruction ins, TaintState state, HashSet<string> newlyTaintedFields)
     {
         switch (ins.OpCode.Code)
         {
@@ -392,12 +392,143 @@ public sealed class TaintWalker
                     break;
                 }
 
+            case Code.Call:
+            case Code.Callvirt:
+                HandleCall(method, ins, state, newlyTaintedFields);
+                break;
+
             default:
                 // Conservative fallback: pop the operand stack to the opcode's declared pop count,
                 // then push untainted to the declared push count.
                 ApplyStackBehavior(ins, state);
                 break;
         }
+    }
+
+    private void HandleCall(MethodDefinition callerMethod, Instruction ins, TaintState state, HashSet<string> newlyTaintedFields)
+    {
+        var callee = (MethodReference)ins.Operand;
+        var paramCount = callee.Parameters.Count;
+        bool hasThisOnStack = callee.HasThis;
+
+        // Snapshot the args off the stack in order: [receiver?], arg0, arg1, ...
+        // Stack top = last arg.
+        int totalPops = paramCount + (hasThisOnStack ? 1 : 0);
+        if (state.Stack.Depth < totalPops)
+        {
+            // Malformed or unsupported shape — pop what's there and treat as untainted return.
+            for (int i = 0; i < state.Stack.Depth; i++) state.Stack.Pop();
+            if (!IsVoidReturn(callee)) state.Stack.Push(StackSlot.Untainted);
+            return;
+        }
+
+        var argSlots = new StackSlot[paramCount];
+        for (int i = paramCount - 1; i >= 0; i--)
+        {
+            argSlots[i] = state.Stack.Pop();
+        }
+        var receiverSlot = hasThisOnStack ? state.Stack.Pop() : default;
+
+        // If the callee is in the analyzed assembly, recurse.
+        var resolved = SafeResolveMethod(callee);
+        if (resolved is null || resolved.Module.Assembly != _context.Assembly)
+        {
+            // External: push untainted return (conservative). Any tainted return from an external call
+            // would need source_methods modelling.
+            if (!IsVoidReturn(callee)) state.Stack.Push(StackSlot.Untainted);
+            return;
+        }
+
+        int bitmask = 0;
+        for (int i = 0; i < paramCount; i++)
+        {
+            if (argSlots[i].Tainted) bitmask |= (1 << i);
+        }
+
+        // Cross-method walk.
+        var calleeSummary = Walk(resolved, bitmask);
+
+        // Return-value taint propagation: over-approximate — return is tainted when any tainted arg
+        // was passed OR the callee's summary says ReturnsTainted.
+        bool callReturnIsTainted = !IsVoidReturn(callee) && (bitmask != 0 || calleeSummary.ReturnsTainted);
+
+        // `this`-field taint propagation: callee's NewlyTaintedThisFields apply to caller's
+        // receiver ONLY when the caller's receiver was itself `this`.
+        bool receiverIsCallerThis = hasThisOnStack && IsReceiverCallerThis(receiverSlot, ins);
+        if (receiverIsCallerThis && resolved.HasThis)
+        {
+            foreach (var fName in calleeSummary.NewlyTaintedThisFields)
+            {
+                var fd = resolved.DeclaringType.Fields.FirstOrDefault(f => f.Name == fName);
+                if (fd is null) continue;
+                state.ThisFields[fd.FullName] = StackSlot.TaintedWith(fName);
+                newlyTaintedFields.Add(fName);
+            }
+        }
+
+        if (!IsVoidReturn(callee))
+        {
+            var provenance = callReturnIsTainted
+                ? CombineProvenanceArgs(argSlots, $"{callee.DeclaringType.Name}.{callee.Name}")
+                : "";
+            state.Stack.Push(callReturnIsTainted ? StackSlot.TaintedWith(provenance) : StackSlot.Untainted);
+        }
+    }
+
+    private static string CombineProvenanceArgs(StackSlot[] args, string fallback)
+    {
+        foreach (var s in args)
+        {
+            if (s.Tainted) return s.Provenance;
+        }
+        return fallback;
+    }
+
+    private static bool IsVoidReturn(MethodReference mr)
+        => mr.ReturnType.FullName == "System.Void";
+
+    private static MethodDefinition? SafeResolveMethod(MethodReference mr)
+    {
+        try { return mr.Resolve(); }
+        catch { return null; }
+    }
+
+    // Whether the receiver passed to the callee is the caller's own `this`.
+    // Heuristic: in Debug IL, `ldarg.0; <arg-push>*; call` is the common shape.
+    private static bool IsReceiverCallerThis(StackSlot receiverSlot, Instruction call)
+    {
+        // If the receiver slot is tainted with "this" provenance, trust it.
+        if (receiverSlot.Provenance == "this" && receiverSlot.Tainted) return true;
+
+        // Otherwise walk backward from the call instruction to find the receiver's source
+        // (skip intervening arg-push instructions that produce the `paramCount` arg values).
+        // For MVP, accept a conservative match: if any `ldarg.0` appears close-behind and no
+        // other receiver-producing instruction is closer, treat as this.
+        // Simplest heuristic: the receiver push is the instruction at call.Previous backed up
+        // by `paramCount + (any nops)` instruction positions. The test fixtures we care about
+        // (CrossMethodStore) have a straightforward `ldarg.0; ldarg.1; call` pattern. For now:
+        // if `call.Previous` is an arg-push like `ldarg.*`/`ldloc.*`/`ldc.*`, walk back past
+        // those and check if we land on `ldarg.0`.
+        var cur = call.Previous;
+        int budget = 16;
+        while (cur is not null && budget-- > 0)
+        {
+            if (cur.OpCode.Code is Code.Ldarg_0) return true;
+            if (cur.OpCode.Code is Code.Ldarg_1 or Code.Ldarg_2 or Code.Ldarg_3
+                or Code.Ldarg or Code.Ldarg_S
+                or Code.Ldloc_0 or Code.Ldloc_1 or Code.Ldloc_2 or Code.Ldloc_3
+                or Code.Ldloc or Code.Ldloc_S
+                or Code.Ldc_I4_0 or Code.Ldc_I4_1 or Code.Ldc_I4_2 or Code.Ldc_I4_3 or Code.Ldc_I4_4
+                or Code.Ldc_I4_5 or Code.Ldc_I4_6 or Code.Ldc_I4_7 or Code.Ldc_I4_8
+                or Code.Ldc_I4_M1 or Code.Ldc_I4 or Code.Ldc_I4_S or Code.Ldc_I8 or Code.Ldc_R4 or Code.Ldc_R8
+                or Code.Ldnull or Code.Ldstr or Code.Nop)
+            {
+                cur = cur.Previous;
+                continue;
+            }
+            return false;  // something more complex on the stack — can't prove `this` safely
+        }
+        return false;
     }
 
     // Recovers the instruction that pushed the `stfld`'s receiver. Stack pattern at the call site:

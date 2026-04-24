@@ -96,4 +96,48 @@ public class TaintWalkerTests
         summary.ReachedSink.ShouldBeTrue();
         summary.Hops.Last().SinkApi.ShouldBe(SinkApi.NewArray);
     }
+
+    [Fact]
+    public void Walk_CallsHelperThatStoresToThisField_MergesFieldTaint()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.CrossMethodHost::CrossMethodStore(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.NewlyTaintedThisFields.ShouldContain("stored");
+    }
+
+    [Fact]
+    public void Walk_HelperReturnsTaintedValue_SinkFires()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.CrossMethodHost::CrossMethodTaintedReturn(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.ReachedSink.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Walk_MemoizesByMethodAndBitmask()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var m = ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.CrossMethodHost::CrossMethodStore(System.Int32)")!;
+        var first = walker.Walk(m, 0b1);
+        var second = walker.Walk(m, 0b1);
+
+        // Same object reference: memoized.
+        second.ShouldBeSameAs(first);
+
+        // Different bitmask: different summary.
+        var zero = walker.Walk(m, 0b0);
+        zero.ShouldNotBeSameAs(first);
+    }
 }
