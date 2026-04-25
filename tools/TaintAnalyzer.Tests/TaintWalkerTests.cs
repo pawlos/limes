@@ -278,4 +278,55 @@ public class TaintWalkerTests
         var unseeded = walker.Walk(m, 0b0);
         unseeded.ShouldNotBeSameAs(seeded);
     }
+
+    [Fact]
+    public void Walk_PropagatorHopForFieldLoad_HasFieldLoadTransformation()
+    {
+        // FieldTaintHost.AllocateFromField reads this.payloadSize (pre-tainted) and uses it at sink.
+        // With propagator emission, there should be a `field_load` hop before the sink.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.WalkWithSeed(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.FieldTaintHost::AllocateFromField()")!,
+            taintedParamBitmask: 0b0,
+            taintedThisFields: new[] { "payloadSize" });
+
+        var fieldLoadHops = summary.Hops.Where(h => h.Transformation == "field_load").ToList();
+        fieldLoadHops.ShouldNotBeEmpty();
+        fieldLoadHops[0].Role.ShouldBe(HopRole.Propagator);
+    }
+
+    [Fact]
+    public void Walk_PropagatorHopForArithmetic_HasArithmeticTransformation()
+    {
+        // IntraMethodAllocation does `int n = size + 4; new byte[n];` — the `+ 4` should produce
+        // an arithmetic propagator hop.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.WalkerFixtures::IntraMethodAllocation(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.Hops.ShouldContain(h => h.Transformation == "arithmetic" && h.Role == HopRole.Propagator);
+    }
+
+    [Fact]
+    public void Walk_PropagatorHopForCrossMethodCall_HasDispatchPopulated()
+    {
+        // CrossMethodTaintedReturn calls Echo(n); the call boundary should produce a propagator
+        // hop with Dispatch populated.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.CrossMethodHost::CrossMethodTaintedReturn(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        var callHop = summary.Hops.FirstOrDefault(h =>
+            h.Role == HopRole.Propagator && h.Dispatch is not null);
+        callHop.ShouldNotBeNull();
+        callHop!.Dispatch!.Kind.ShouldBe("direct");
+    }
 }

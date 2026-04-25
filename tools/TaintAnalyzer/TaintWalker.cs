@@ -126,7 +126,7 @@ public sealed class TaintWalker
                 returnsTainted = true;
             }
 
-            StepInstruction(method, ins, state, newlyTaintedFields);
+            StepInstruction(method, ins, state, newlyTaintedFields, hops, ref hopCounter);
         }
 
         // Splice all sanitizer hops before the sink (or append if no sink). Multiple sanitizers
@@ -243,10 +243,37 @@ public sealed class TaintWalker
         return true;
     }
 
+    private void EmitPropagatorHop(
+        MethodDefinition method,
+        Instruction ins,
+        string transformation,
+        string valueIn,
+        string valueOut,
+        ResolvedDispatch? dispatch,
+        List<HopRecord> hops,
+        ref int hopCounter)
+    {
+        var sp = _context.GetSequencePoint(method, ins);
+        hops.Add(new HopRecord
+        {
+            Hop = hopCounter++,
+            Method = $"{method.DeclaringType.FullName}.{method.Name}",
+            File = sp is null ? "" : Path.GetFileName(sp.Document.Url),
+            Line = sp?.StartLine ?? 0,
+            Role = HopRole.Propagator,
+            TaintedValueIn = valueIn,
+            Transformation = transformation,
+            TaintedValueOut = valueOut,
+            Dispatch = dispatch,
+        });
+    }
+
     // Handles a single IL instruction by updating taint state. Called AFTER HandleSinkMatch;
     // at sink instructions, the operand stack still contains the critical arguments when matchers run.
     // This ordering is invariant and relied upon by cross-method analysis (Task 11).
-    private void StepInstruction(MethodDefinition method, Instruction ins, TaintState state, HashSet<string> newlyTaintedFields)
+    private void StepInstruction(MethodDefinition method, Instruction ins, TaintState state,
+                                 HashSet<string> newlyTaintedFields,
+                                 List<HopRecord> hops, ref int hopCounter)
     {
         switch (ins.OpCode.Code)
         {
@@ -325,9 +352,17 @@ public sealed class TaintWalker
                 {
                     var rhs = state.Stack.Pop();
                     var lhs = state.Stack.Pop();
-                    state.Stack.Push(lhs.Tainted || rhs.Tainted
-                        ? StackSlot.TaintedWith(CombineProvenance(lhs, rhs))
-                        : StackSlot.Untainted);
+                    if (lhs.Tainted || rhs.Tainted)
+                    {
+                        var prov = CombineProvenance(lhs, rhs);
+                        state.Stack.Push(StackSlot.TaintedWith(prov));
+                        var valueIn = lhs.Tainted ? lhs.Provenance : rhs.Provenance;
+                        EmitPropagatorHop(method, ins, "arithmetic", valueIn, prov, null, hops, ref hopCounter);
+                    }
+                    else
+                    {
+                        state.Stack.Push(StackSlot.Untainted);
+                    }
                     break;
                 }
 
@@ -349,7 +384,13 @@ public sealed class TaintWalker
             case Code.Conv_R4:
             case Code.Conv_R8:
                 // Unary on top-of-stack: keep taint, preserve provenance.
-                // (pop and push back as-is)
+                // (pop and push back as-is — no stack mutation needed)
+                // Emit a cast propagator hop when the top slot is tainted.
+                if (state.Stack.Depth > 0 && state.Stack.Peek().Tainted)
+                {
+                    var slot = state.Stack.Peek();
+                    EmitPropagatorHop(method, ins, "cast", slot.Provenance, slot.Provenance, null, hops, ref hopCounter);
+                }
                 break;
 
             case Code.Newarr:
@@ -418,19 +459,32 @@ public sealed class TaintWalker
                 {
                     var fr = (FieldReference)ins.Operand;
                     var receiver = state.Stack.Pop();
+                    StackSlot result;
+                    string? valueIn = null;
+
                     if (receiver.Tainted)
                     {
                         // Taint propagates on field-load from a tainted struct/object.
-                        state.Stack.Push(StackSlot.TaintedWith($"{receiver.Provenance}.{fr.Name}"));
-                        break;
+                        result = StackSlot.TaintedWith($"{receiver.Provenance}.{fr.Name}");
+                        valueIn = receiver.Provenance;
                     }
-                    // Receiver is `this` (Ldarg.0) whose per-field taint map we track:
-                    if (state.ThisFields.TryGetValue(fr.FullName, out var fieldSlot) && fieldSlot.Tainted)
+                    else if (state.ThisFields.TryGetValue(fr.FullName, out var fieldSlot) && fieldSlot.Tainted)
                     {
-                        state.Stack.Push(fieldSlot);
-                        break;
+                        // Receiver is `this` (Ldarg.0) whose per-field taint map we track.
+                        result = fieldSlot;
+                        valueIn = "this";  // implicit receiver — provenance is `this.<field>` already in the slot
                     }
-                    state.Stack.Push(StackSlot.Untainted);
+                    else
+                    {
+                        result = StackSlot.Untainted;
+                    }
+
+                    state.Stack.Push(result);
+
+                    if (result.Tainted)
+                    {
+                        EmitPropagatorHop(method, ins, "field_load", valueIn ?? result.Provenance, result.Provenance, null, hops, ref hopCounter);
+                    }
                     break;
                 }
 
@@ -440,6 +494,8 @@ public sealed class TaintWalker
                     if (state.StaticFields.TryGetValue(fr.FullName, out var sfld) && sfld.Tainted)
                     {
                         state.Stack.Push(sfld);
+                        var fieldValueIn = $"{fr.DeclaringType.Name}.{fr.Name}";
+                        EmitPropagatorHop(method, ins, "field_load", fieldValueIn, sfld.Provenance, null, hops, ref hopCounter);
                     }
                     else
                     {
@@ -482,7 +538,7 @@ public sealed class TaintWalker
 
             case Code.Call:
             case Code.Callvirt:
-                HandleCall(method, ins, state, newlyTaintedFields);
+                HandleCall(method, ins, state, newlyTaintedFields, hops, ref hopCounter);
                 break;
 
             default:
@@ -493,7 +549,8 @@ public sealed class TaintWalker
         }
     }
 
-    private void HandleCall(MethodDefinition callerMethod, Instruction ins, TaintState state, HashSet<string> newlyTaintedFields)
+    private void HandleCall(MethodDefinition callerMethod, Instruction ins, TaintState state,
+                           HashSet<string> newlyTaintedFields, List<HopRecord> hops, ref int hopCounter)
     {
         var callee = (MethodReference)ins.Operand;
         var paramCount = callee.Parameters.Count;
@@ -565,6 +622,30 @@ public sealed class TaintWalker
                 ? CombineProvenanceArgs(argSlots, $"{callee.DeclaringType.Name}.{callee.Name}")
                 : "";
             state.Stack.Push(callReturnIsTainted ? StackSlot.TaintedWith(provenance) : StackSlot.Untainted);
+        }
+
+        // Emit a propagator hop for the call boundary if any taint flowed through (return or this-field).
+        if (callReturnIsTainted || calleeSummary.NewlyTaintedThisFields.Count > 0 || calleeSummary.ReachedSink)
+        {
+            var dispatch = CallGraph.ResolveCallSite(callerMethod, ins, receiverStaticType: null, _context);
+            string valueIn;
+            string valueOut;
+            if (callReturnIsTainted && argSlots.Any(s => s.Tainted))
+            {
+                valueIn = argSlots.First(s => s.Tainted).Provenance;
+                valueOut = $"{callee.DeclaringType.Name}.{callee.Name}";
+            }
+            else if (calleeSummary.NewlyTaintedThisFields.Count > 0)
+            {
+                valueIn = "this";
+                valueOut = "this";
+            }
+            else
+            {
+                valueIn = "stream";   // best-effort fallback for #3074-style stream forwarding
+                valueOut = "stream";
+            }
+            EmitPropagatorHop(callerMethod, ins, "identity", valueIn, valueOut, dispatch, hops, ref hopCounter);
         }
     }
 
