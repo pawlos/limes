@@ -385,4 +385,46 @@ public class TaintWalkerTests
         // receiver call surfaces as a propagator hop. If it doesn't, that's a minor coverage gap
         // (taint flows through but no hop is emitted at the helper-call boundary) — not a fail.
     }
+
+    [Fact]
+    public void Walk_TryCatchAroundSink_DoesNotCrashAndStillReachesSink()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.ExceptionHandlerHost::AllocateWithCatch(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        // Sink in the try block fires; the catch handler entry doesn't crash.
+        summary.ReachedSink.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Walk_TryFinallyAroundSink_DoesNotCrashAndStillReachesSink()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.ExceptionHandlerHost::AllocateWithFinally(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.ReachedSink.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Walk_NewobjWithTaintedArg_PropagatesTaintThroughLdfldToSink()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.CtorTaintHost::AllocateViaWrapperCtor(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        // newobj propagates tainted arg → tainted wrapper. ldfld w.Value → tainted size.
+        // newarr → sink.
+        summary.ReachedSink.ShouldBeTrue();
+    }
 }

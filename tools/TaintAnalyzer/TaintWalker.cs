@@ -110,6 +110,8 @@ public sealed class TaintWalker
 
         foreach (var ins in method.Body.Instructions)
         {
+            PushImplicitExceptionIfHandlerStart(method, ins, state);
+
             if (HandleSinkMatch(method, ins, state, hops, ref hopCounter))
             {
                 reachedSink = true;
@@ -548,6 +550,27 @@ public sealed class TaintWalker
                 }
                 break;
 
+            case Code.Newobj:
+                {
+                    var mr = (MethodReference)ins.Operand;
+                    int paramCount = mr.Parameters.Count;
+                    bool anyTainted = false;
+                    string? firstTaintedProvenance = null;
+                    for (int i = 0; i < paramCount && state.Stack.Depth > 0; i++)
+                    {
+                        var popped = state.Stack.Pop();
+                        if (popped.Tainted)
+                        {
+                            anyTainted = true;
+                            firstTaintedProvenance ??= popped.Provenance;
+                        }
+                    }
+                    state.Stack.Push(anyTainted
+                        ? StackSlot.TaintedWith($"new {mr.DeclaringType.Name}({firstTaintedProvenance})")
+                        : StackSlot.Untainted);
+                    break;
+                }
+
             default:
                 // Conservative fallback: pop the operand stack to the opcode's declared pop count,
                 // then push untainted to the declared push count.
@@ -784,6 +807,30 @@ public sealed class TaintWalker
 
     private static bool InstructionIsLdarg0(Instruction? ins)
         => ins is not null && ins.OpCode.Code is Code.Ldarg_0;
+
+    private static void PushImplicitExceptionIfHandlerStart(MethodDefinition method, Instruction ins, TaintState state)
+    {
+        if (method.Body is null || !method.Body.HasExceptionHandlers) return;
+
+        foreach (var handler in method.Body.ExceptionHandlers)
+        {
+            // Catch handler: exception is on the stack at HandlerStart.
+            if (handler.HandlerType == ExceptionHandlerType.Catch && ins == handler.HandlerStart)
+            {
+                state.Stack.Push(StackSlot.Untainted);
+                return;
+            }
+            // Filter handler: exception is on the stack at BOTH FilterStart (filter clause entry)
+            // AND HandlerStart (the actual handler body, after the filter returned 1).
+            if (handler.HandlerType == ExceptionHandlerType.Filter
+                && (ins == handler.FilterStart || ins == handler.HandlerStart))
+            {
+                state.Stack.Push(StackSlot.Untainted);
+                return;
+            }
+            // Finally / Fault: no implicit push — these handlers run with empty stack.
+        }
+    }
 
     private static void ApplyStackBehavior(Instruction ins, TaintState state)
     {

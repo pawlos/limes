@@ -357,6 +357,53 @@ public sealed class FakeStream
     }
 }
 
+public sealed class ExceptionHandlerHost
+{
+    // Method with a try/catch — used to verify the walker doesn't crash on handler entry.
+    public byte[] AllocateWithCatch(int size)
+    {
+        try
+        {
+            return new byte[size];
+        }
+        catch (Exception)
+        {
+            return Array.Empty<byte>();
+        }
+    }
+
+    // Method with a try/finally — Finally handlers DO NOT receive the exception object.
+    // Verifies the walker doesn't push a phantom slot for Finally.
+    public byte[] AllocateWithFinally(int size)
+    {
+        try
+        {
+            return new byte[size];
+        }
+        finally
+        {
+            // no-op
+        }
+    }
+}
+
+public sealed class CtorTaintHost
+{
+    public sealed class SizeWrapper
+    {
+        public int Value;
+        public SizeWrapper(int value) { Value = value; }
+    }
+
+    // newobj with a tainted constructor arg → the new object reference is tainted.
+    // Reading w.Value via ldfld on a tainted receiver should propagate taint to the result.
+    public byte[] AllocateViaWrapperCtor(int size)
+    {
+        var w = new SizeWrapper(size);
+        return new byte[w.Value];
+    }
+}
+
 // Mirrors parquet-dotnet ThriftCompactProtocolReader.ReadBinary → ReadBytesExactly
 // (issue #738: uncontrolled `new byte[]` from user-controlled varint length).
 public static class ParquetThriftLikeFixtures
