@@ -662,6 +662,15 @@ public sealed class TaintWalker
                 valueOut = "stream";
             }
             EmitPropagatorHop(callerMethod, ins, "identity", valueIn, valueOut, dispatch, hops, ref hopCounter);
+
+            // Append the callee's hops (the recursive walk's findings) into the caller's hop list,
+            // preserving each hop's Method label so the trace shows the cross-method chain.
+            // Don't append calleeSummary.Absences — only the outermost walked method synthesizes
+            // absences (the caller's WalkMethodBody end-block will emit at most one).
+            foreach (var calleeHop in calleeSummary.Hops)
+            {
+                hops.Add(calleeHop);
+            }
         }
 
         return calleeSummary.ReachedSink;

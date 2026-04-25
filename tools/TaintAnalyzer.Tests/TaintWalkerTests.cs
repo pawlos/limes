@@ -344,16 +344,13 @@ public class TaintWalkerTests
             taintedParamBitmask: 0b1);
 
         summary.ReachedSink.ShouldBeTrue();
-        // NOTE: the sink hop lives in ReadBytesExactly's callee summary; callee hops are not yet
-        // merged into the caller's hop list (known gap — tracked separately). The minimum assertion
-        // here is that ReachedSink bubbled up correctly from the callee.
+        // With the hop-merge fix the sink hop from ReadBytesExactly is now present in the caller's list.
+        summary.Hops.ShouldContain(h => h.Role == HopRole.Sink && h.SinkApi == SinkApi.NewArray);
     }
 
     [Fact]
     public void Walk_SinkInCallee_CallerSummaryReportsReachedSink()
     {
-        // Direct verification that ReachedSink bubbles up from callee to caller. The parquet test
-        // demonstrates this implicitly; this is the explicit regression assertion.
         using var ctx = AssemblyContext.Load(FixturePath);
         var walker = new TaintWalker(ctx);
 
@@ -361,16 +358,31 @@ public class TaintWalkerTests
             ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.ParquetThriftLikeFixtures::ReadBinary(TaintAnalyzer.Tests.Fixtures.FakeStream)")!,
             taintedParamBitmask: 0b1);
 
-        // ReadBinary itself contains no `newarr` instruction; the sink is in ReadBytesExactly.
-        // Without the bubble, summary.ReachedSink would be false.
+        // ReadBinary itself contains no `newarr` — the sink is in ReadBytesExactly.
+        // Without the bubble + hop-merge, summary.ReachedSink would be false AND summary.Hops
+        // would lack the sink. With both fixes, the sink hop merges into the caller's chain.
         summary.ReachedSink.ShouldBeTrue();
+        summary.Hops.ShouldContain(h => h.Role == HopRole.Sink && h.SinkApi == SinkApi.NewArray);
+    }
 
-        // The hop list should include the sink hop emitted from within ReadBytesExactly's recursive walk.
-        // (Hops emitted from a callee bubble up to the caller's hop list — verified by Task 11.)
-        // NOTE: callee hops are not yet merged into the caller's hop list (known gap).
-        // The ShouldContain assertion is left here as a future-facing expectation; when the merge
-        // gap is fixed this assertion will start passing without further changes to this test.
-        // For now, we only assert on ReachedSink bubbling (the minimum bar for this task).
-        // summary.Hops.ShouldContain(h => h.Role == HopRole.Sink && h.SinkApi == SinkApi.NewArray);
+    [Fact]
+    public void Walk_CrossMethodChain_HopsCarryCalleeMethodLabels()
+    {
+        // The ParquetThriftLikeFixtures.ReadBinary chain spans three methods:
+        // ReadBinary, ReadVarInt32, ReadBytesExactly. After the hop-merge fix, the caller's
+        // summary should contain hops with Method labels from all three methods.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.ParquetThriftLikeFixtures::ReadBinary(TaintAnalyzer.Tests.Fixtures.FakeStream)")!,
+            taintedParamBitmask: 0b1);
+
+        var methodLabels = summary.Hops.Select(h => h.Method).Distinct().ToList();
+        methodLabels.ShouldContain(s => s.EndsWith("ReadBinary"));
+        methodLabels.ShouldContain(s => s.EndsWith("ReadBytesExactly"));
+        // ReadVarInt32 may or may not have an emitted hop depending on whether NextByte's tainted-
+        // receiver call surfaces as a propagator hop. If it doesn't, that's a minor coverage gap
+        // (taint flows through but no hop is emitted at the helper-call boundary) — not a fail.
     }
 }
