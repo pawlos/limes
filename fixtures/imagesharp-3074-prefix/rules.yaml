@@ -1,0 +1,3 @@
+vuln_id: imagesharp-3074
+source_methods:
+  - SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore::Decode(SixLabors.ImageSharp.IO.BufferedReadStream,System.Threading.CancellationToken)
