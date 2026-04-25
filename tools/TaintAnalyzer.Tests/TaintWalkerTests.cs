@@ -215,4 +215,33 @@ public class TaintWalkerTests
         // No absence emitted (sanitizers present).
         summary.Absences.ShouldBeEmpty();
     }
+
+    [Fact]
+    public void Walk_GetterReturnsTaintedField_SummaryReportsReturnsTainted()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        // Seed `this.data` as tainted (no arg taint, bitmask=0).
+        var summary = walker.WalkWithSeed(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.GetterTaintHost::GetData()")!,
+            taintedParamBitmask: 0b0,
+            taintedThisFields: new[] { "data" });
+
+        summary.ReturnsTainted.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Walk_GetterReturnsUntaintedField_SummaryReportsReturnsTaintedFalse()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        // No seed — this.data is untainted at entry.
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.GetterTaintHost::GetData()")!,
+            taintedParamBitmask: 0b0);
+
+        summary.ReturnsTainted.ShouldBeFalse();
+    }
 }

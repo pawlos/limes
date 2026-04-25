@@ -301,3 +301,25 @@ public sealed class MultiSanitizerHost
         return new byte[n];
     }
 }
+
+public sealed class GetterTaintHost
+{
+    public int data;
+
+    // Getter: returns this.data; takes no args. ReturnsTainted should be true when called
+    // with a pre-tainted state.ThisFields["data"]. WalkWithSeed exercises this directly.
+    public int GetData() => this.data;
+
+    // Caller: pre-taint this.data via SetData(tainted), then GetData() returns tainted, sink fires.
+    public void SetData(int value)
+    {
+        this.data = value;
+    }
+
+    public byte[] CrossMethodGetterToSink(int n)
+    {
+        SetData(n);                // taints this.data
+        int x = GetData();         // returns this.data (tainted), but bitmask=0 since GetData has no args
+        return new byte[x];        // sink — must fire
+    }
+}

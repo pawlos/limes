@@ -51,6 +51,7 @@ public sealed class TaintWalker
 
         var hops = new List<HopRecord>();
         bool reachedSink = false;
+        bool returnsTainted = false;
         // Hop counter resets per method; Task 11 refines to aggregate hops across the call chain.
         int hopCounter = 0;
         var newlyTaintedFields = new HashSet<string>(StringComparer.Ordinal);
@@ -106,6 +107,15 @@ public sealed class TaintWalker
                 // methods could in principle produce additional sink records.
             }
 
+            // Detect tainted-return BEFORE stepping `ret` (the step is a no-op anyway).
+            if (ins.OpCode.Code == Code.Ret
+                && method.ReturnType.FullName != "System.Void"
+                && state.Stack.Depth > 0
+                && state.Stack.Peek().Tainted)
+            {
+                returnsTainted = true;
+            }
+
             StepInstruction(method, ins, state, newlyTaintedFields);
         }
 
@@ -152,7 +162,7 @@ public sealed class TaintWalker
         {
             MethodFullName = method.FullName,
             TaintedParamBitmask = taintedParamBitmask,
-            ReturnsTainted = false,
+            ReturnsTainted = returnsTainted,
             NewlyTaintedThisFields = newlyTaintedFields.ToArray(),
             Hops = hops,
             Absences = absences,
