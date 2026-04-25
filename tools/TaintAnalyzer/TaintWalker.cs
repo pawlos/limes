@@ -126,7 +126,7 @@ public sealed class TaintWalker
                 returnsTainted = true;
             }
 
-            StepInstruction(method, ins, state, newlyTaintedFields, hops, ref hopCounter);
+            StepInstruction(method, ins, state, newlyTaintedFields, hops, ref hopCounter, ref reachedSink);
         }
 
         // Splice all sanitizer hops before the sink (or append if no sink). Multiple sanitizers
@@ -143,7 +143,10 @@ public sealed class TaintWalker
         }
 
         var absences = new List<EmittedSanitizerAbsence>();
-        if (pendingSanitizerHops.Count == 0 && reachedSink && hops.Count > 0)
+        // Guard: only synthesize an absence when there is a local sink hop; if reachedSink was
+        // bubbled from a callee the sink hop lives in that callee's summary, not here.
+        if (pendingSanitizerHops.Count == 0 && reachedSink && hops.Count > 0
+            && hops.Any(h => h.Role == HopRole.Sink))
         {
             // Point at the propagator hop immediately preceding the sink, per spec.
             var sinkHop = hops.Last(h => h.Role == HopRole.Sink);
@@ -273,7 +276,8 @@ public sealed class TaintWalker
     // This ordering is invariant and relied upon by cross-method analysis (Task 11).
     private void StepInstruction(MethodDefinition method, Instruction ins, TaintState state,
                                  HashSet<string> newlyTaintedFields,
-                                 List<HopRecord> hops, ref int hopCounter)
+                                 List<HopRecord> hops, ref int hopCounter,
+                                 ref bool reachedSink)
     {
         switch (ins.OpCode.Code)
         {
@@ -538,7 +542,10 @@ public sealed class TaintWalker
 
             case Code.Call:
             case Code.Callvirt:
-                HandleCall(method, ins, state, newlyTaintedFields, hops, ref hopCounter);
+                if (HandleCall(method, ins, state, newlyTaintedFields, hops, ref hopCounter))
+                {
+                    reachedSink = true;
+                }
                 break;
 
             default:
@@ -549,7 +556,7 @@ public sealed class TaintWalker
         }
     }
 
-    private void HandleCall(MethodDefinition callerMethod, Instruction ins, TaintState state,
+    private bool HandleCall(MethodDefinition callerMethod, Instruction ins, TaintState state,
                            HashSet<string> newlyTaintedFields, List<HopRecord> hops, ref int hopCounter)
     {
         var callee = (MethodReference)ins.Operand;
@@ -564,7 +571,7 @@ public sealed class TaintWalker
             // Malformed or unsupported shape — pop what's there and treat as untainted return.
             for (int i = 0; i < state.Stack.Depth; i++) state.Stack.Pop();
             if (!IsVoidReturn(callee)) state.Stack.Push(StackSlot.Untainted);
-            return;
+            return false;
         }
 
         var argSlots = new StackSlot[paramCount];
@@ -581,7 +588,7 @@ public sealed class TaintWalker
             // External: push untainted return (conservative). Any tainted return from an external call
             // would need source_methods modelling.
             if (!IsVoidReturn(callee)) state.Stack.Push(StackSlot.Untainted);
-            return;
+            return false;
         }
 
         int bitmask = 0;
@@ -656,6 +663,8 @@ public sealed class TaintWalker
             }
             EmitPropagatorHop(callerMethod, ins, "identity", valueIn, valueOut, dispatch, hops, ref hopCounter);
         }
+
+        return calleeSummary.ReachedSink;
     }
 
     private static string CombineProvenanceArgs(StackSlot[] args, string fallback)

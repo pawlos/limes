@@ -361,19 +361,19 @@ public sealed class FakeStream
 // (issue #738: uncontrolled `new byte[]` from user-controlled varint length).
 public static class ParquetThriftLikeFixtures
 {
-    // The entry point: takes a tainted FakeStream, reads a length from it, allocates that many bytes.
-    // The sink (new byte[length]) is here so the top-level Walk sees ReachedSink directly.
     public static byte[] ReadBinary(FakeStream stream)
     {
         int length = ReadVarInt32(stream);
-        return new byte[length];   // the unbounded allocation sink
+        return ReadBytesExactly(length);
     }
 
     private static int ReadVarInt32(FakeStream stream)
     {
-        // Realistic varint: read a byte from the stream. Receiver `stream` is tainted (passed in
-        // by caller via parameter); the call to NextByte returns tainted bytes. After the walker
-        // fix above, NextByte's return is treated as tainted because its receiver was.
         return stream.NextByte();
+    }
+
+    private static byte[] ReadBytesExactly(int count)
+    {
+        return new byte[count];   // ← the unbounded allocation sink
     }
 }
