@@ -603,8 +603,12 @@ public sealed class TaintWalker
         var calleeSummary = WalkWithSeed(resolved, bitmask, seedFields);
 
         // Return-value taint propagation: over-approximate — return is tainted when any tainted arg
-        // was passed OR the callee's summary says ReturnsTainted.
-        bool callReturnIsTainted = !IsVoidReturn(callee) && (bitmask != 0 || calleeSummary.ReturnsTainted);
+        // was passed OR the callee's summary says ReturnsTainted OR the receiver itself was tainted
+        // (any read on a tainted stream/object surfaces tainted bytes).
+        bool callReturnIsTainted = !IsVoidReturn(callee)
+            && (bitmask != 0
+                || calleeSummary.ReturnsTainted
+                || (hasThisOnStack && receiverSlot.Tainted));
         if (receiverIsCallerThis && resolved.HasThis)
         {
             foreach (var fName in calleeSummary.NewlyTaintedThisFields)
@@ -633,6 +637,11 @@ public sealed class TaintWalker
             if (callReturnIsTainted && argSlots.Any(s => s.Tainted))
             {
                 valueIn = argSlots.First(s => s.Tainted).Provenance;
+                valueOut = $"{callee.DeclaringType.Name}.{callee.Name}";
+            }
+            else if (callReturnIsTainted && hasThisOnStack && receiverSlot.Tainted)
+            {
+                valueIn = receiverSlot.Provenance;
                 valueOut = $"{callee.DeclaringType.Name}.{callee.Name}";
             }
             else if (calleeSummary.NewlyTaintedThisFields.Count > 0)

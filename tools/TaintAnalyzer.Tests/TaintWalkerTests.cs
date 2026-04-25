@@ -329,4 +329,23 @@ public class TaintWalkerTests
         callHop.ShouldNotBeNull();
         callHop!.Dispatch!.Kind.ShouldBe("direct");
     }
+
+    [Fact]
+    public void Walk_ParquetDotNet738_TaintedStreamReachesSink()
+    {
+        // Mirrors parquet-dotnet ThriftCompactProtocolReader.ReadBinary chain:
+        // FakeStream → ReadVarInt32 → length → ReadBytesExactly → new byte[count].
+        // This is the simplest possible cross-method tainted-receiver-to-sink shape.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.ParquetThriftLikeFixtures::ReadBinary(TaintAnalyzer.Tests.Fixtures.FakeStream)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.ReachedSink.ShouldBeTrue();
+        var sinkHop = summary.Hops.Last(h => h.Role == HopRole.Sink);
+        sinkHop.SinkApi.ShouldBe(SinkApi.NewArray);
+        sinkHop.SinkKind.ShouldBe(SinkKind.Allocation);
+    }
 }

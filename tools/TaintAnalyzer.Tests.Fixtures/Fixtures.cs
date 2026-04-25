@@ -343,3 +343,37 @@ public sealed class NullableFieldHost
         }
     }
 }
+
+// Stand-in for a stream-like API. In-assembly so the walker can recurse into its methods.
+public sealed class FakeStream
+{
+    private int _pos;
+
+    public int NextByte()
+    {
+        // Simplified read: returns a byte from an internal buffer. Real semantics don't matter —
+        // the walker treats this as "instance method on a stream-like type, returns int."
+        return _pos++;
+    }
+}
+
+// Mirrors parquet-dotnet ThriftCompactProtocolReader.ReadBinary → ReadBytesExactly
+// (issue #738: uncontrolled `new byte[]` from user-controlled varint length).
+public static class ParquetThriftLikeFixtures
+{
+    // The entry point: takes a tainted FakeStream, reads a length from it, allocates that many bytes.
+    // The sink (new byte[length]) is here so the top-level Walk sees ReachedSink directly.
+    public static byte[] ReadBinary(FakeStream stream)
+    {
+        int length = ReadVarInt32(stream);
+        return new byte[length];   // the unbounded allocation sink
+    }
+
+    private static int ReadVarInt32(FakeStream stream)
+    {
+        // Realistic varint: read a byte from the stream. Receiver `stream` is tainted (passed in
+        // by caller via parameter); the call to NextByte returns tainted bytes. After the walker
+        // fix above, NextByte's return is treated as tainted because its receiver was.
+        return stream.NextByte();
+    }
+}
