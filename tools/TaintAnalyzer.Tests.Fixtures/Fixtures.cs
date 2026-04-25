@@ -287,3 +287,17 @@ public static class SpanIndexFixtures
         return src[idx];
     }
 }
+
+public sealed class MultiSanitizerHost
+{
+    public int payloadSize;
+
+    // Two sanitizers in one method, both throwing if their respective check fails.
+    // Mirrors ImageSharp's #3074 ReadInfoHeader shape (two guards then an allocation).
+    public byte[] AllocateWithTwoGuards(int n, int max)
+    {
+        if (n < 0)   ThrowHelpers.ThrowOutOfRange(nameof(n));
+        if (n > max) ThrowHelpers.ThrowOutOfRange(nameof(n));
+        return new byte[n];
+    }
+}

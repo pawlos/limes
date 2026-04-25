@@ -222,17 +222,29 @@ public static class SanitizerShapes
         catch { return null; }
     }
 
-    // --- Full matchers (Task 7) ---
+    // --- Full matchers (Task 7, extended in Task 14.5.2 for multi-sanitizer support) ---
 
     public static SanitizerMatch? MatchCompareAndThrow(MethodDefinition method)
-        => MatchSanitizer(method, requiredFailureKind: FailureKind.Throw);
+        => MatchAllOfKind(method, FailureKind.Throw).FirstOrDefault();
 
     public static SanitizerMatch? MatchCompareAndReturnEarly(MethodDefinition method)
-        => MatchSanitizer(method, requiredFailureKind: FailureKind.ReturnEarly);
+        => MatchAllOfKind(method, FailureKind.ReturnEarly).FirstOrDefault();
 
-    private static SanitizerMatch? MatchSanitizer(MethodDefinition method, FailureKind requiredFailureKind)
+    public static IEnumerable<SanitizerMatch> MatchAll(MethodDefinition method)
     {
-        if (method.Body is null) return null;
+        // Yield matches across both failure-kinds, ordered by IL offset (already true since
+        // each kind iterates the same body in order; we merge by offset to interleave both kinds
+        // if a method had a mix).
+        var matches = new List<SanitizerMatch>();
+        matches.AddRange(MatchAllOfKind(method, FailureKind.Throw));
+        matches.AddRange(MatchAllOfKind(method, FailureKind.ReturnEarly));
+        matches.Sort((a, b) => a.ComparisonIlOffset.CompareTo(b.ComparisonIlOffset));
+        return matches;
+    }
+
+    private static IEnumerable<SanitizerMatch> MatchAllOfKind(MethodDefinition method, FailureKind requiredFailureKind)
+    {
+        if (method.Body is null) yield break;
 
         foreach (var ins in method.Body.Instructions)
         {
@@ -261,7 +273,7 @@ public static class SanitizerShapes
                 exception = resolved is not null ? ResolveExceptionType(resolved) : NameSuffixException(helper.Name);
             }
 
-            return new SanitizerMatch
+            yield return new SanitizerMatch
             {
                 EstablishesBound = bound,
                 OnFailure = new OnFailure
@@ -272,8 +284,6 @@ public static class SanitizerShapes
                 ComparisonIlOffset = ins.Offset,
             };
         }
-
-        return null;
     }
 
     private readonly record struct ComparisonOperands(string Left, string Right);

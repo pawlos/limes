@@ -208,6 +208,24 @@ public class SanitizerShapesTests
         match.EstablishesBound.Relation.ShouldBe("<=");
     }
 
+    [Fact]
+    public void MatchAll_TwoSanitizersInOneMethod_ReturnsBothInIlOrder()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.MultiSanitizerHost::AllocateWithTwoGuards(System.Int32,System.Int32)");
+
+        var matches = SanitizerShapes.MatchAll(m).ToList();
+
+        matches.Count.ShouldBe(2);
+        // Both should be Throw/return-fail kind.
+        matches.ShouldAllBe(s => s.OnFailure.Kind == FailureKind.Throw);
+        // Bound targets are different operands but both refer to `n` (left side of each comparison).
+        matches[0].EstablishesBound.Target.ShouldBe("n");
+        matches[1].EstablishesBound.Target.ShouldBe("n");
+        // The IL-order property is implied by ComparisonIlOffset being non-decreasing.
+        matches[0].ComparisonIlOffset.ShouldBeLessThan(matches[1].ComparisonIlOffset);
+    }
+
     private static Instruction FindConditionalBranch(MethodDefinition m)
         => m.Body.Instructions.First(i => IsConditionalBranch(i.OpCode));
 

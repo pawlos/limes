@@ -69,15 +69,13 @@ public sealed class TaintWalker
             };
         }
 
-        var sanitizerMatch = SanitizerShapes.MatchCompareAndThrow(method)
-                          ?? SanitizerShapes.MatchCompareAndReturnEarly(method);
-        HopRecord? pendingSanitizerHop = null;
-        if (sanitizerMatch is not null)
+        var sanitizerMatches = SanitizerShapes.MatchAll(method).ToList();
+        var pendingSanitizerHops = new List<HopRecord>();
+        foreach (var sanitizerMatch in sanitizerMatches)
         {
-            // Emit at the IL offset of the comparison's conditional branch.
             var branchIns = method.Body.Instructions.FirstOrDefault(i => i.Offset == sanitizerMatch.ComparisonIlOffset);
             var sp = branchIns is null ? null : _context.GetSequencePoint(method, branchIns);
-            pendingSanitizerHop = new HopRecord
+            pendingSanitizerHops.Add(new HopRecord
             {
                 Hop = 0,                         // patched after the walk below so hops are contiguous
                 Method = $"{method.DeclaringType.FullName}.{method.Name}",
@@ -96,7 +94,7 @@ public sealed class TaintWalker
                     ResolvedTargets = Array.Empty<string>(),
                     ClosureBoundary = false,
                 },
-            };
+            });
         }
 
         foreach (var ins in method.Body.Instructions)
@@ -111,18 +109,21 @@ public sealed class TaintWalker
             StepInstruction(method, ins, state, newlyTaintedFields);
         }
 
-        if (pendingSanitizerHop is not null)
+        // Splice all sanitizer hops before the sink (or append if no sink). Multiple sanitizers
+        // accumulate in front of the sink in IL order — each insertion bumps the next index.
+        if (pendingSanitizerHops.Count > 0)
         {
-            // Insert the sanitizer hop at a position that comes before the sink but after the setup
-            // propagators. For MVP, put it right before the last hop (the sink).
             int insertAt = hops.Count > 0 && hops[^1].Role == HopRole.Sink ? hops.Count - 1 : hops.Count;
-            hops.Insert(insertAt, pendingSanitizerHop with { Hop = insertAt });
-            // Renumber.
+            foreach (var hop in pendingSanitizerHops)
+            {
+                hops.Insert(insertAt, hop);
+                insertAt++;   // next sanitizer goes after the one just inserted
+            }
             for (int i = 0; i < hops.Count; i++) hops[i] = hops[i] with { Hop = i };
         }
 
         var absences = new List<EmittedSanitizerAbsence>();
-        if (pendingSanitizerHop is null && reachedSink && hops.Count > 0)
+        if (pendingSanitizerHops.Count == 0 && reachedSink && hops.Count > 0)
         {
             // Point at the propagator hop immediately preceding the sink, per spec.
             var sinkHop = hops.Last(h => h.Role == HopRole.Sink);

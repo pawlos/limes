@@ -192,4 +192,27 @@ public class TaintWalkerTests
         sp.ShouldNotBeNull();
         sp!.StartLine.ShouldBeGreaterThan(0);
     }
+
+    [Fact]
+    public void Walk_TwoSanitizersOneSink_EmitsBothSanitizerHopsBeforeSink()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.MultiSanitizerHost::AllocateWithTwoGuards(System.Int32,System.Int32)")!,
+            taintedParamBitmask: 0b1);   // n is tainted, max is not
+
+        summary.ReachedSink.ShouldBeTrue();
+        var sanitizerHops = summary.Hops.Where(h => h.Role == HopRole.Sanitizer).ToList();
+        sanitizerHops.Count.ShouldBe(2);
+        // Both sanitizer hops appear before the sink in the hop list.
+        var sinkIdx = summary.Hops.ToList().FindIndex(h => h.Role == HopRole.Sink);
+        sinkIdx.ShouldBeGreaterThan(0);
+        var hopList = summary.Hops.ToList();
+        hopList.IndexOf(sanitizerHops[0]).ShouldBeLessThan(sinkIdx);
+        hopList.IndexOf(sanitizerHops[1]).ShouldBeLessThan(sinkIdx);
+        // No absence emitted (sanitizers present).
+        summary.Absences.ShouldBeEmpty();
+    }
 }
