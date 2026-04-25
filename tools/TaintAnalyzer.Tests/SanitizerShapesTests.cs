@@ -209,6 +209,22 @@ public class SanitizerShapesTests
     }
 
     [Fact]
+    public void MatchCompareAndThrow_NullableValueChain_RecoversFullDottedProvenance()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.NullableFieldHost::GuardOnNullableValueChain(System.Int32)");
+
+        var match = SanitizerShapes.MatchCompareAndThrow(m);
+
+        match.ShouldNotBeNull();
+        // The C# `this.wrapped!.Value.Limit > limit` should produce dotted target
+        // "this.wrapped.Value.Limit" — exercising the `call get_Value` branch in BuildDottedFieldChain.
+        match!.EstablishesBound.Target.ShouldBe("this.wrapped.Value.Limit");
+        match.EstablishesBound.UpperBound.ShouldBe("limit");
+        match.EstablishesBound.Relation.ShouldBe("<=");
+    }
+
+    [Fact]
     public void MatchAll_TwoSanitizersInOneMethod_ReturnsBothInIlOrder()
     {
         using var ctx = AssemblyContext.Load(FixturePath);

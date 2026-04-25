@@ -323,3 +323,23 @@ public sealed class GetterTaintHost
         return new byte[x];        // sink — must fire
     }
 }
+
+public sealed class NullableFieldHost
+{
+    public InnerStruct? wrapped;
+
+    public struct InnerStruct
+    {
+        public int Limit;
+    }
+
+    // Mirrors the ImageSharp #3074 shape: this.<Nullable_field>.Value.<scalar>.
+    // Debug IL: ldarg.0; ldflda wrapped; call get_Value; ldfld Limit; ldarg.1; cgt; brfalse SAFE; throw...
+    public void GuardOnNullableValueChain(int limit)
+    {
+        if (this.wrapped!.Value.Limit > limit)
+        {
+            ThrowHelpers.ThrowOutOfRange(nameof(limit));
+        }
+    }
+}
