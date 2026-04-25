@@ -244,4 +244,38 @@ public class TaintWalkerTests
 
         summary.ReturnsTainted.ShouldBeFalse();
     }
+
+    [Fact]
+    public void Walk_CrossMethodGetterReadsTaintedField_SinkFires()
+    {
+        // CrossMethodGetterToSink(int n) calls SetData(n) → this.data tainted, then GetData()
+        // returns this.data, then `new byte[x]`. With the I-1 fix, the call to GetData() should
+        // be analyzed with taintedThisFields=["data"], so GetData()'s ReturnsTainted is true,
+        // so the caller's stack carries a tainted slot to the newarr sink.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.GetterTaintHost::CrossMethodGetterToSink(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.ReachedSink.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void WalkWithSeed_DifferentSeeds_AreCachedSeparately()
+    {
+        // Seeded walks must be cached under their seed-specific key; different seeds → different
+        // cache entries (and identity); same seed twice → same cache entry (and identity).
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+        var m = ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.GetterTaintHost::GetData()")!;
+
+        var seeded = walker.WalkWithSeed(m, 0b0, new[] { "data" });
+        var seededAgain = walker.WalkWithSeed(m, 0b0, new[] { "data" });
+        seededAgain.ShouldBeSameAs(seeded);
+
+        var unseeded = walker.Walk(m, 0b0);
+        unseeded.ShouldNotBeSameAs(seeded);
+    }
 }

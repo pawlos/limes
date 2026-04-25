@@ -6,7 +6,9 @@ namespace TaintAnalyzer;
 public sealed class TaintWalker
 {
     private readonly AssemblyContext _context;
-    private readonly Dictionary<(string fullName, int bitmask), MethodSummary> _memo = new();
+    // Memo key: (callee FullName, tainted-arg bitmask, sorted+joined seeded `this`-field names).
+    // Seeded-fields-as-string keeps the key value-typed-equality friendly without a custom comparer.
+    private readonly Dictionary<(string fullName, int bitmask, string seedKey), MethodSummary> _memo = new();
 
     public TaintWalker(AssemblyContext context) => _context = context;
 
@@ -15,14 +17,15 @@ public sealed class TaintWalker
 
     public MethodSummary WalkWithSeed(MethodDefinition method, int taintedParamBitmask, IReadOnlyCollection<string> taintedThisFields)
     {
-        var key = (method.FullName, taintedParamBitmask);
-        // Memo keyed only by method+param bitmask for MVP. Seeded this-fields are a caller-specific
-        // refinement; we accept the cache collision risk for now — Task 11 revisits.
-        if (_memo.TryGetValue(key, out var cached) && taintedThisFields.Count == 0)
+        var seedKey = BuildSeedKey(taintedThisFields);
+        var key = (method.FullName, taintedParamBitmask, seedKey);
+        if (_memo.TryGetValue(key, out var cached))
         {
             return cached;
         }
 
+        // Sentinel placeholder breaks recursion on cycles — the recursive call sees this empty
+        // summary and returns immediately, completing the cycle without infinite descent.
         var placeholder = new MethodSummary
         {
             MethodFullName = method.FullName,
@@ -33,11 +36,18 @@ public sealed class TaintWalker
             Absences = Array.Empty<EmittedSanitizerAbsence>(),
             ReachedSink = false,
         };
-        if (taintedThisFields.Count == 0) _memo[key] = placeholder;
+        _memo[key] = placeholder;
 
         var summary = WalkMethodBody(method, taintedParamBitmask, taintedThisFields);
-        if (taintedThisFields.Count == 0) _memo[key] = summary;
+        _memo[key] = summary;
         return summary;
+    }
+
+    private static string BuildSeedKey(IReadOnlyCollection<string> taintedThisFields)
+    {
+        if (taintedThisFields.Count == 0) return "";
+        var sorted = taintedThisFields.OrderBy(s => s, StringComparer.Ordinal);
+        return string.Join(",", sorted);
     }
 
     private MethodSummary WalkMethodBody(
@@ -523,16 +533,21 @@ public sealed class TaintWalker
             if (argSlots[i].Tainted) bitmask |= (1 << i);
         }
 
-        // Cross-method walk.
-        var calleeSummary = Walk(resolved, bitmask);
+        // Determine if the receiver is caller's own `this` BEFORE walking, so we can pass
+        // the caller's currently-tainted field names into WalkWithSeed (I-1 fix).
+        bool receiverIsCallerThis = hasThisOnStack && IsReceiverCallerThis(receiverSlot, ins);
+
+        // Compute seeded `this`-field set: when the receiver is caller's `this` AND the callee's
+        // declaring type matches the caller's (or is a base/derived in the same field-shape), pass
+        // the caller's currently-tainted field names that exist on the callee's declaring type.
+        var seedFields = ComputeCrossMethodSeed(callerMethod, resolved, state, hasThisOnStack: receiverIsCallerThis);
+
+        // Cross-method walk with seeded `this`-fields.
+        var calleeSummary = WalkWithSeed(resolved, bitmask, seedFields);
 
         // Return-value taint propagation: over-approximate — return is tainted when any tainted arg
         // was passed OR the callee's summary says ReturnsTainted.
         bool callReturnIsTainted = !IsVoidReturn(callee) && (bitmask != 0 || calleeSummary.ReturnsTainted);
-
-        // `this`-field taint propagation: callee's NewlyTaintedThisFields apply to caller's
-        // receiver ONLY when the caller's receiver was itself `this`.
-        bool receiverIsCallerThis = hasThisOnStack && IsReceiverCallerThis(receiverSlot, ins);
         if (receiverIsCallerThis && resolved.HasThis)
         {
             foreach (var fName in calleeSummary.NewlyTaintedThisFields)
@@ -607,6 +622,39 @@ public sealed class TaintWalker
             return false;  // something more complex on the stack — can't prove `this` safely
         }
         return false;
+    }
+
+    private static IReadOnlyCollection<string> ComputeCrossMethodSeed(
+        MethodDefinition callerMethod,
+        MethodDefinition callee,
+        TaintState state,
+        bool hasThisOnStack)
+    {
+        // Only propagate when the call passes the caller's `this` and the callee is on a type
+        // that shares the field namespace. Strict MVP: types must match exactly.
+        if (!hasThisOnStack) return Array.Empty<string>();
+        if (!callee.HasThis) return Array.Empty<string>();
+        if (callerMethod.DeclaringType.FullName != callee.DeclaringType.FullName) return Array.Empty<string>();
+
+        // Collect tainted field names from caller's `this`-field map. Filter to fields that exist
+        // on the callee's declaring type (which is the same as caller's per the guard above, but
+        // future relaxation might allow base-type inheritance; this filter remains correct then).
+        var seed = new List<string>();
+        foreach (var (fieldFullName, slot) in state.ThisFields)
+        {
+            if (!slot.Tainted) continue;
+            // FieldFullName format from Cecil: "ReturnType DeclaringType::FieldName".
+            // Extract just the field name for the seed (matches Stfld bookkeeping convention).
+            var doubleColon = fieldFullName.IndexOf("::", StringComparison.Ordinal);
+            if (doubleColon < 0) continue;
+            var name = fieldFullName.Substring(doubleColon + 2);
+            // Confirm the field actually exists on the callee's declaring type.
+            if (callee.DeclaringType.Fields.Any(f => f.Name == name))
+            {
+                seed.Add(name);
+            }
+        }
+        return seed;
     }
 
     // Recovers the instruction that pushed the `stfld`'s receiver. Stack pattern at the call site:
