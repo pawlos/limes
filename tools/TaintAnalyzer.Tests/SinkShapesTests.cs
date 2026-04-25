@@ -161,4 +161,41 @@ public class SinkShapesTests
 
         SinkShapes.MatchNewArr(anyInstruction, stack).ShouldBeNull();
     }
+
+    [Fact]
+    public void MatchReadOnlySpanIndex_TaintedIndex_ReturnsMatch()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.SpanIndexFixtures::IndexSpan(System.ReadOnlySpan`1<System.Byte>,System.Int32)");
+        var callItem = m.Body.Instructions.Single(i =>
+            (i.OpCode == OpCodes.Call || i.OpCode == OpCodes.Callvirt) &&
+            i.Operand is MethodReference mr && mr.Name == "get_Item");
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);                  // receiver (ReadOnlySpan)
+        stack.Push(StackSlot.TaintedWith("idx"));         // tainted index
+
+        var match = SinkShapes.MatchReadOnlySpanIndex(callItem, stack);
+
+        match.ShouldNotBeNull();
+        match!.Kind.ShouldBe(SinkKind.SpanAccess);
+        match.Api.ShouldBe(SinkApi.SpanIndex);
+        match.SizeProvenance.ShouldBe("idx");
+    }
+
+    [Fact]
+    public void MatchReadOnlySpanIndex_UntaintedIndex_ReturnsNull()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.SpanIndexFixtures::IndexSpan(System.ReadOnlySpan`1<System.Byte>,System.Int32)");
+        var callItem = m.Body.Instructions.Single(i =>
+            (i.OpCode == OpCodes.Call || i.OpCode == OpCodes.Callvirt) &&
+            i.Operand is MethodReference mr && mr.Name == "get_Item");
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);
+        stack.Push(StackSlot.Untainted);
+
+        SinkShapes.MatchReadOnlySpanIndex(callItem, stack).ShouldBeNull();
+    }
 }

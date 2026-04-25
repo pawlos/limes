@@ -91,4 +91,28 @@ public static class SinkShapes
             SizeProvenance = taintedSlot.Value.Provenance,
         };
     }
+
+    public static SinkMatch? MatchReadOnlySpanIndex(Instruction instruction, SymbolicStack stack)
+    {
+        if (instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) return null;
+        if (instruction.Operand is not MethodReference mr) return null;
+        if (mr.Name != "get_Item") return null;
+        if (!mr.DeclaringType.FullName.StartsWith("System.ReadOnlySpan`", StringComparison.Ordinal))
+        {
+            return null;
+        }
+        if (mr.Parameters.Count != 1) return null;
+        if (mr.Parameters[0].ParameterType.FullName != "System.Int32") return null;
+
+        if (stack.Depth < 2) return null;   // receiver + index
+        var indexSlot = stack.Peek(0);
+        if (!indexSlot.Tainted) return null;
+
+        return new SinkMatch
+        {
+            Kind = SinkKind.SpanAccess,
+            Api = SinkApi.SpanIndex,
+            SizeProvenance = indexSlot.Provenance,
+        };
+    }
 }

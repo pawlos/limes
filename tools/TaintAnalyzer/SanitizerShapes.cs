@@ -457,7 +457,8 @@ public static class SanitizerShapes
             case Code.Ldloc_2: return LocalName(method, 2);
             case Code.Ldloc_3: return LocalName(method, 3);
             case Code.Ldfld:
-                return ins.Operand is FieldReference fr ? fr.Name : null;
+            case Code.Ldflda:
+                return BuildDottedFieldChain(ins, method);
             case Code.Ldsfld:
                 return ins.Operand is FieldReference sfr ? $"{sfr.DeclaringType.Name}.{sfr.Name}" : null;
             case Code.Ldc_I4_0: return "0";
@@ -492,6 +493,51 @@ public static class SanitizerShapes
             return $"loc_{idx}";
         }
         return $"loc_{idx}";
+    }
+
+    // Walks backward from a Ldfld/Ldflda instruction through nested chains of:
+    //   ldfld/ldflda  → "<base>.<name>"
+    //   call get_Value/get_X  → "<base>.<getter-without-prefix>"
+    //   ldarg.0       → "this"
+    //   ldarg/ldloc/ldfld/etc. → terminal: their OperandName recurses naturally
+    // For the input `ldarg.0; ldfld inner; ldfld Offset`, walking back from the second ldfld
+    // produces "this.inner.Offset". Returns null if any step in the chain can't be resolved.
+    private static string? BuildDottedFieldChain(Instruction ins, MethodDefinition method)
+    {
+        if (ins.Operand is not FieldReference fr) return null;
+        var fieldName = fr.Name;
+
+        // Walk to the receiver (the instruction that pushed the receiver of this ldfld).
+        var receiverIns = ins.Previous;
+        if (receiverIns is null) return fieldName;
+
+        var basePart = OperandNameForReceiver(receiverIns, method);
+        return basePart is null ? fieldName : $"{basePart}.{fieldName}";
+    }
+
+    // Like OperandName but recognises additional opcodes that produce a "receiver" value:
+    // ldfld/ldflda chain, call get_Value/get_<X>, plus delegates back to OperandName for leaf forms.
+    private static string? OperandNameForReceiver(Instruction ins, MethodDefinition method)
+    {
+        switch (ins.OpCode.Code)
+        {
+            case Code.Ldfld:
+            case Code.Ldflda:
+                return BuildDottedFieldChain(ins, method);
+            case Code.Call:
+            case Code.Callvirt:
+                if (ins.Operand is MethodReference mr
+                    && mr.Name.StartsWith("get_", StringComparison.Ordinal)
+                    && mr.Parameters.Count == 0)
+                {
+                    var prop = mr.Name.Substring(4);   // "get_Value" → "Value"
+                    var receiver = ins.Previous;
+                    var basePart = receiver is null ? null : OperandNameForReceiver(receiver, method);
+                    return basePart is null ? prop : $"{basePart}.{prop}";
+                }
+                return null;
+        }
+        return OperandName(ins, method);
     }
 
     // Spec's bound-extraction table. `branchTargetIsFailure = true` means the branch TARGET is the failure

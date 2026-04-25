@@ -193,6 +193,21 @@ public class SanitizerShapesTests
         match.OnFailure.Kind.ShouldBe(FailureKind.Throw);
     }
 
+    [Fact]
+    public void MatchCompareAndThrow_FieldChainOperand_RecoversDottedProvenance()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.FieldChainHost::GuardOnFieldChain(System.Int32)");
+
+        var match = SanitizerShapes.MatchCompareAndThrow(m);
+
+        match.ShouldNotBeNull();
+        // The C# `this.inner!.Offset > limit` produces dotted target "this.inner.Offset".
+        match!.EstablishesBound.Target.ShouldBe("this.inner.Offset");
+        match.EstablishesBound.UpperBound.ShouldBe("limit");
+        match.EstablishesBound.Relation.ShouldBe("<=");
+    }
+
     private static Instruction FindConditionalBranch(MethodDefinition m)
         => m.Body.Instructions.First(i => IsConditionalBranch(i.OpCode));
 

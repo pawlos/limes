@@ -257,3 +257,33 @@ public sealed class CrossMethodHost
 
     private static int Echo(int x) => x;
 }
+
+public sealed class FieldChainHost
+{
+    public Inner? inner;
+
+    public sealed class Inner
+    {
+        public int Offset;
+    }
+
+    // Comparison left operand is `this.inner.Offset`-style chain.
+    // The C# expression `this.inner!.Offset` compiles to `ldarg.0; ldfld inner; ldfld Offset` in
+    // Debug IL — we don't need the actual Nullable<T>.Value indirection to exercise the chain,
+    // a non-null reference field with a value field on it produces the same multi-ldfld pattern.
+    public void GuardOnFieldChain(int limit)
+    {
+        if (this.inner!.Offset > limit)
+        {
+            ThrowHelpers.ThrowOutOfRange(nameof(limit));
+        }
+    }
+}
+
+public static class SpanIndexFixtures
+{
+    public static byte IndexSpan(ReadOnlySpan<byte> src, int idx)
+    {
+        return src[idx];
+    }
+}
