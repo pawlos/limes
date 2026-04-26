@@ -45,14 +45,16 @@ public static class SanitizerShapes
 
     public static string? ResolveExceptionType(MethodDefinition throwHelper)
     {
-        // Walk the body for the first `newobj <ExceptionCtor>` and return the declaring type's FullName.
+        // Walk the body for the first `newobj <ExceptionCtor>` and return the declaring type's
+        // SHORT name (no namespace) — fixtures use the C# unqualified form
+        // (`InvalidImageContentException`), not the FQN.
         if (throwHelper.Body is not null)
         {
             foreach (var ins in throwHelper.Body.Instructions)
             {
                 if (ins.OpCode == OpCodes.Newobj && ins.Operand is MethodReference ctor)
                 {
-                    return ctor.DeclaringType.FullName;
+                    return ctor.DeclaringType.Name;
                 }
             }
         }
@@ -144,8 +146,14 @@ public static class SanitizerShapes
                 {
                     return new ArmOutcome(true, FailureKind.Throw, mr);
                 }
-                // A non-throw-helper call means the arm has side effects — not a pure failure body.
-                return new ArmOutcome(false, default, null);
+                // Non-throw-helper call: walk past it. Real-world throw arms may build an
+                // interpolated string before the throw helper — DefaultInterpolatedStringHandler
+                // .ctor / AppendLiteral / AppendFormatted / ToStringAndClear all appear between
+                // the conditional branch and the actual throw call. Treating the first such call
+                // as "not failure" misses these shapes. Continue iterating; the budget bounds
+                // arm walks so we won't follow a runaway non-failure body forever.
+                cur = cur.Next;
+                continue;
             }
 
             if (cur.OpCode == OpCodes.Throw || cur.OpCode == OpCodes.Rethrow)
@@ -320,10 +328,8 @@ public static class SanitizerShapes
                    or Code.Bne_Un or Code.Bne_Un_S)
         {
             // <push left>; <push right>; bXX
-            var rightIns = branch.Previous;
-            if (rightIns is null) return false;
-            var leftIns = rightIns.Previous;
-            if (leftIns is null) return false;
+            var (leftIns, rightIns) = FindOperandPushers(branch, method, depthAtComparison: 2);
+            if (leftIns is null || rightIns is null) return false;
 
             var right = OperandName(rightIns, method);
             var left  = OperandName(leftIns, method);
@@ -390,11 +396,13 @@ public static class SanitizerShapes
         if (compCode is not (Code.Cgt or Code.Cgt_Un or Code.Clt or Code.Clt_Un or Code.Ceq))
             return false;
 
-        // Step 5: the two operands pushed before the comparison.
-        var rightOperandIns = cur.Previous;
-        if (rightOperandIns is null) return false;
-        var leftOperandIns = rightOperandIns.Previous;
-        if (leftOperandIns is null) return false;
+        // Step 5: stack-effect-aware lookup of the two operand pushers. The naive
+        // `cgt.Previous` / `Previous.Previous` walk-back fails when an operand is the result of
+        // a multi-instruction chain (e.g., `ldflda; call get_Value; stloc; ldloca; call
+        // get_Offset; conv.i8` for `this.fileHeader.Value.Offset`). FindOperandPushers walks
+        // back from `cur` (the comparison opcode that pops 2) tracking stack-effect deltas.
+        var (leftOperandIns, rightOperandIns) = FindOperandPushers(cur, method, depthAtComparison: 2);
+        if (rightOperandIns is null || leftOperandIns is null) return false;
 
         var rightName = OperandName(rightOperandIns, method);
         var leftName  = OperandName(leftOperandIns, method);
@@ -462,6 +470,9 @@ public static class SanitizerShapes
             case Code.Ldloc:
             case Code.Ldloc_S:
                 return LocalName(method, ((VariableDefinition)ins.Operand).Index);
+            case Code.Ldloca:
+            case Code.Ldloca_S:
+                return LocalName(method, ((VariableDefinition)ins.Operand).Index);
             case Code.Ldloc_0: return LocalName(method, 0);
             case Code.Ldloc_1: return LocalName(method, 1);
             case Code.Ldloc_2: return LocalName(method, 2);
@@ -484,8 +495,166 @@ public static class SanitizerShapes
             case Code.Ldc_I4:
             case Code.Ldc_I4_S:
                 return ins.Operand?.ToString();
+
+            // Call/Callvirt to a getter — synthesize "{receiver}.{property}". Other calls
+            // synthesize the bare method name as a best-effort signal.
+            case Code.Call:
+            case Code.Callvirt:
+                if (ins.Operand is MethodReference mr2)
+                {
+                    string methodPart = mr2.Name.StartsWith("get_", StringComparison.Ordinal)
+                        ? mr2.Name.Substring(4)
+                        : mr2.Name;
+                    if (mr2.HasThis)
+                    {
+                        // Receiver was pushed by some preceding instruction. Walk back N=paramCount
+                        // pusher slots to find it; conservative: use ins.Previous when paramCount=0,
+                        // otherwise leave receiver-prefix off (best-effort — the property name alone
+                        // is usually identifying enough for soft-match purposes).
+                        if (mr2.Parameters.Count == 0)
+                        {
+                            var receiver = SkipWhileTrivial(ins.Previous);
+                            var basePart = receiver is null ? null : OperandNameForReceiver(receiver, method);
+                            return basePart is null ? methodPart : $"{basePart}.{methodPart}";
+                        }
+                    }
+                    return methodPart;
+                }
+                return null;
+
+            // Conversion: just preserves the operand. Recurse to the predecessor's name.
+            case Code.Conv_I:
+            case Code.Conv_I1:
+            case Code.Conv_I2:
+            case Code.Conv_I4:
+            case Code.Conv_I8:
+            case Code.Conv_U:
+            case Code.Conv_U1:
+            case Code.Conv_U2:
+            case Code.Conv_U4:
+            case Code.Conv_U8:
+            case Code.Conv_R4:
+            case Code.Conv_R8:
+                return ins.Previous is null ? null : OperandName(ins.Previous, method);
         }
         return null;
+    }
+
+    private static Instruction? SkipWhileTrivial(Instruction? ins)
+    {
+        while (ins is not null && ins.OpCode.Code == Code.Nop) ins = ins.Previous;
+        return ins;
+    }
+
+    // Find the instructions that pushed the right (top of stack) and left (second from top)
+    // operands of a 2-operand comparison instruction. Uses a forward symbolic-stack
+    // simulation that records, at each instruction, which prior instruction pushed each
+    // currently-live stack slot. Robust to call/callvirt with variable arity, conv chains,
+    // newobj, and other multi-instruction operand expressions. Returns (null, null) if the
+    // simulation can't reach the comparison or the stack is unexpectedly shallow there.
+    private static (Instruction? Left, Instruction? Right) FindOperandPushers(
+        Instruction comparison, MethodDefinition method, int depthAtComparison)
+    {
+        if (method.Body is null) return (null, null);
+
+        var offsetToIns = new Dictionary<int, Instruction>();
+        foreach (var ins in method.Body.Instructions) offsetToIns[ins.Offset] = ins;
+
+        // Stack of pusher IL offsets (or -1 for "exception handler implicit push").
+        var stack = new List<int>();
+        foreach (var ins in method.Body.Instructions)
+        {
+            // Implicit push of caught exception at handler/filter start (matches walker semantics).
+            PushImplicitExceptionIfHandlerStart(method, ins, stack);
+
+            if (ins.Offset == comparison.Offset)
+            {
+                if (stack.Count < depthAtComparison) return (null, null);
+                int rightOffset = stack[^1];
+                int leftOffset = stack[^2];
+                Instruction? leftIns = leftOffset >= 0 && offsetToIns.TryGetValue(leftOffset, out var l) ? l : null;
+                Instruction? rightIns = rightOffset >= 0 && offsetToIns.TryGetValue(rightOffset, out var r) ? r : null;
+                return (leftIns, rightIns);
+            }
+
+            int pops = StackPopsOf(ins);
+            int pushes = StackPushesOf(ins);
+            for (int i = 0; i < pops && stack.Count > 0; i++) stack.RemoveAt(stack.Count - 1);
+            for (int i = 0; i < pushes; i++) stack.Add(ins.Offset);
+        }
+        return (null, null);
+    }
+
+    private static void PushImplicitExceptionIfHandlerStart(MethodDefinition method, Instruction ins, List<int> stack)
+    {
+        if (method.Body is null || !method.Body.HasExceptionHandlers) return;
+        foreach (var handler in method.Body.ExceptionHandlers)
+        {
+            if (handler.HandlerType == ExceptionHandlerType.Catch && ins == handler.HandlerStart)
+            {
+                stack.Add(-1);
+                return;
+            }
+            if (handler.HandlerType == ExceptionHandlerType.Filter
+                && (ins == handler.FilterStart || ins == handler.HandlerStart))
+            {
+                stack.Add(-1);
+                return;
+            }
+        }
+    }
+
+    private static int StackPopsOf(Instruction ins)
+    {
+        var op = ins.OpCode;
+        if (op.Code == Code.Call || op.Code == Code.Callvirt)
+        {
+            if (ins.Operand is MethodReference mr)
+                return mr.Parameters.Count + (mr.HasThis ? 1 : 0);
+            return 0;
+        }
+        if (op.Code == Code.Newobj)
+        {
+            if (ins.Operand is MethodReference mr) return mr.Parameters.Count;
+            return 0;
+        }
+        if (op.Code == Code.Ret)
+        {
+            // Function returns pop one if non-void, else zero.
+            return 0;   // not relevant in our walk-back which doesn't cross method boundaries
+        }
+        return op.StackBehaviourPop switch
+        {
+            StackBehaviour.Pop0 => 0,
+            StackBehaviour.Pop1 or StackBehaviour.Popi or StackBehaviour.Popref => 1,
+            StackBehaviour.Pop1_pop1 or StackBehaviour.Popi_pop1 or StackBehaviour.Popi_popi
+                or StackBehaviour.Popi_popi8 or StackBehaviour.Popi_popr4 or StackBehaviour.Popi_popr8
+                or StackBehaviour.Popref_pop1 or StackBehaviour.Popref_popi => 2,
+            StackBehaviour.Popi_popi_popi or StackBehaviour.Popref_popi_popi
+                or StackBehaviour.Popref_popi_popi8 or StackBehaviour.Popref_popi_popr4
+                or StackBehaviour.Popref_popi_popr8 or StackBehaviour.Popref_popi_popref => 3,
+            _ => 0,
+        };
+    }
+
+    private static int StackPushesOf(Instruction ins)
+    {
+        var op = ins.OpCode;
+        if (op.Code == Code.Call || op.Code == Code.Callvirt)
+        {
+            if (ins.Operand is MethodReference mr)
+                return mr.ReturnType.FullName == "System.Void" ? 0 : 1;
+            return 0;
+        }
+        if (op.Code == Code.Newobj) return 1;
+        return op.StackBehaviourPush switch
+        {
+            StackBehaviour.Push0 => 0,
+            StackBehaviour.Push1 or StackBehaviour.Pushi or StackBehaviour.Pushi8
+                or StackBehaviour.Pushr4 or StackBehaviour.Pushr8 or StackBehaviour.Pushref => 1,
+            StackBehaviour.Push1_push1 => 2,
+            _ => 0,
+        };
     }
 
     private static string LocalName(MethodDefinition m, int idx)
@@ -522,11 +691,19 @@ public static class SanitizerShapes
         if (receiverIns is null) return fieldName;
 
         var basePart = OperandNameForReceiver(receiverIns, method);
-        return basePart is null ? fieldName : $"{basePart}.{fieldName}";
+        if (basePart is null) return fieldName;
+        // Drop the implicit `this.` prefix — fixtures use the C# convention of writing
+        // `fileHeader.Value.Offset`, not `this.fileHeader.Value.Offset`.
+        if (basePart == "this") return fieldName;
+        return $"{basePart}.{fieldName}";
     }
 
     // Like OperandName but recognises additional opcodes that produce a "receiver" value:
     // ldfld/ldflda chain, call get_Value/get_<X>, plus delegates back to OperandName for leaf forms.
+    // For ldloc/ldloca, traces back to the most-recent stloc to that local and recurses on the
+    // stored value's source — this recovers the C#-level chain through Roslyn's temp locals
+    // (e.g., `ldflda fileHeader; call get_Value; stloc V_14; ldloca V_14; call get_Offset`
+    // resolves to `fileHeader.Value.Offset` rather than `loc_14.Offset`).
     private static string? OperandNameForReceiver(Instruction ins, MethodDefinition method)
     {
         switch (ins.OpCode.Code)
@@ -546,8 +723,63 @@ public static class SanitizerShapes
                     return basePart is null ? prop : $"{basePart}.{prop}";
                 }
                 return null;
+            case Code.Ldloc:
+            case Code.Ldloc_S:
+            case Code.Ldloca:
+            case Code.Ldloca_S:
+            case Code.Ldloc_0:
+            case Code.Ldloc_1:
+            case Code.Ldloc_2:
+            case Code.Ldloc_3:
+                {
+                    int idx = LocalIndexFromLoad(ins);
+                    if (idx < 0) return OperandName(ins, method);
+                    var assignedFrom = FindLastStlocValueSource(ins, idx);
+                    if (assignedFrom is not null)
+                    {
+                        var traced = OperandNameForReceiver(assignedFrom, method);
+                        if (traced is not null) return traced;
+                    }
+                    return OperandName(ins, method);
+                }
         }
         return OperandName(ins, method);
+    }
+
+    private static int LocalIndexFromLoad(Instruction ins) => ins.OpCode.Code switch
+    {
+        Code.Ldloc_0 => 0,
+        Code.Ldloc_1 => 1,
+        Code.Ldloc_2 => 2,
+        Code.Ldloc_3 => 3,
+        Code.Ldloc or Code.Ldloc_S or Code.Ldloca or Code.Ldloca_S
+            => ((VariableDefinition)ins.Operand).Index,
+        _ => -1,
+    };
+
+    private static int LocalIndexFromStore(Instruction ins) => ins.OpCode.Code switch
+    {
+        Code.Stloc_0 => 0,
+        Code.Stloc_1 => 1,
+        Code.Stloc_2 => 2,
+        Code.Stloc_3 => 3,
+        Code.Stloc or Code.Stloc_S
+            => ((VariableDefinition)ins.Operand).Index,
+        _ => -1,
+    };
+
+    // Walk backward from `from` to find the most recent stloc to local `idx`. Returns the
+    // instruction that pushed the value being stored (i.e., stloc.Previous), or null.
+    private static Instruction? FindLastStlocValueSource(Instruction from, int idx)
+    {
+        for (var cur = from.Previous; cur != null; cur = cur.Previous)
+        {
+            if (LocalIndexFromStore(cur) == idx)
+            {
+                return cur.Previous;   // the value-pusher
+            }
+        }
+        return null;
     }
 
     // Spec's bound-extraction table. `branchTargetIsFailure = true` means the branch TARGET is the failure

@@ -100,7 +100,15 @@ public static class TraceEmitter
             //   4. Any propagator in the sink's method — only call-boundary identity hops.
             //   5. Last path hop — sink reached with no in-method propagator.
             var sinkAbsences = new List<SanitizerAbsence>();
-            bool hasSanitizer = pathHops.Any(h => h.Role == HopRole.Sanitizer);
+            // A sanitizer is "on the path for this sink" only if it's in the SAME method as the
+            // sink. Sanitizers from callee methods (e.g., format-marker switches in
+            // ReadFileHeader / ReadInfoHeader that throw on unknown values) appear in the
+            // merged flat hop list but don't bound the sink's value chain — counting them as
+            // "on path" would incorrectly suppress absence synthesis for unsanitized
+            // allocations. This is an MVP approximation; full data-flow-aware sanitizer
+            // matching (does the sanitizer's bound target appear in the sink's value chain?)
+            // would be more precise.
+            bool hasSanitizer = pathHops.Any(h => h.Role == HopRole.Sanitizer && h.Method == sinkHop.Method);
             if (!hasSanitizer && pathHops.Count > 0)
             {
                 var sinkApi = SinkApiToString(sinkHop.SinkApi) ?? "unknown";

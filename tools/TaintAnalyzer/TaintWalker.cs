@@ -80,33 +80,12 @@ public sealed class TaintWalker
             };
         }
 
-        var sanitizerMatches = SanitizerShapes.MatchAll(method).ToList();
-        var pendingSanitizerHops = new List<HopRecord>();
-        foreach (var sanitizerMatch in sanitizerMatches)
-        {
-            var branchIns = method.Body.Instructions.FirstOrDefault(i => i.Offset == sanitizerMatch.ComparisonIlOffset);
-            var sp = branchIns is null ? null : _context.GetSequencePoint(method, branchIns);
-            pendingSanitizerHops.Add(new HopRecord
-            {
-                Hop = 0,                         // patched after the walk below so hops are contiguous
-                Method = $"{method.DeclaringType.FullName}.{method.Name}",
-                File = sp is null ? "" : Path.GetFileName(sp.Document.Url),
-                Line = sp?.StartLine ?? 0,
-                Role = HopRole.Sanitizer,
-                TaintedValueIn = sanitizerMatch.EstablishesBound.Target,
-                Transformation = "identity",
-                TaintedValueOut = sanitizerMatch.EstablishesBound.Target,
-                EstablishesBound = sanitizerMatch.EstablishesBound,
-                OnFailure = sanitizerMatch.OnFailure,
-                Dispatch = new ResolvedDispatch
-                {
-                    Kind = "direct",
-                    StaticType = method.DeclaringType.FullName,
-                    ResolvedTargets = Array.Empty<string>(),
-                    ClosureBoundary = false,
-                },
-            });
-        }
+        // Pre-compute sanitizer matches keyed by comparison IL offset so we can emit them in
+        // IL order during the body walk (rather than splicing at the end, which mis-positions
+        // them relative to the in-method sink for multi-sink traces).
+        var sanitizerByOffset = SanitizerShapes.MatchAll(method)
+            .GroupBy(m => m.ComparisonIlOffset)
+            .ToDictionary(g => g.Key, g => g.First());
 
         foreach (var ins in method.Body.Instructions)
         {
@@ -119,6 +98,31 @@ public sealed class TaintWalker
                 // methods could in principle produce additional sink records.
             }
 
+            if (sanitizerByOffset.TryGetValue(ins.Offset, out var sanitizerMatch))
+            {
+                var sp = _context.GetSequencePoint(method, ins);
+                hops.Add(new HopRecord
+                {
+                    Hop = hopCounter++,
+                    Method = $"{method.DeclaringType.FullName}.{method.Name}",
+                    File = sp is null ? "" : Path.GetFileName(sp.Document.Url),
+                    Line = sp?.StartLine ?? 0,
+                    Role = HopRole.Sanitizer,
+                    TaintedValueIn = sanitizerMatch.EstablishesBound.Target,
+                    Transformation = "identity",
+                    TaintedValueOut = sanitizerMatch.EstablishesBound.Target,
+                    EstablishesBound = sanitizerMatch.EstablishesBound,
+                    OnFailure = sanitizerMatch.OnFailure,
+                    Dispatch = new ResolvedDispatch
+                    {
+                        Kind = "direct",
+                        StaticType = method.DeclaringType.FullName,
+                        ResolvedTargets = Array.Empty<string>(),
+                        ClosureBoundary = false,
+                    },
+                });
+            }
+
             // Detect tainted-return BEFORE stepping `ret` (the step is a no-op anyway).
             if (ins.OpCode.Code == Code.Ret
                 && method.ReturnType.FullName != "System.Void"
@@ -129,19 +133,6 @@ public sealed class TaintWalker
             }
 
             StepInstruction(method, ins, state, newlyTaintedFields, hops, ref hopCounter, ref reachedSink);
-        }
-
-        // Splice all sanitizer hops before the sink (or append if no sink). Multiple sanitizers
-        // accumulate in front of the sink in IL order — each insertion bumps the next index.
-        if (pendingSanitizerHops.Count > 0)
-        {
-            int insertAt = hops.Count > 0 && hops[^1].Role == HopRole.Sink ? hops.Count - 1 : hops.Count;
-            foreach (var hop in pendingSanitizerHops)
-            {
-                hops.Insert(insertAt, hop);
-                insertAt++;   // next sanitizer goes after the one just inserted
-            }
-            for (int i = 0; i < hops.Count; i++) hops[i] = hops[i] with { Hop = i };
         }
 
         // Sanitizer-absence synthesis lives in TraceEmitter — it has the per-sink path context

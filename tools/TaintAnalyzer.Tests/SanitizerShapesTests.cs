@@ -32,13 +32,15 @@ public class SanitizerShapesTests
     }
 
     [Fact]
-    public void ResolveExceptionType_FromThrowHelperBody_ReturnsFirstNewobjType()
+    public void ResolveExceptionType_FromThrowHelperBody_ReturnsShortTypeName()
     {
+        // Returns the unqualified type name (no namespace) — matches the C# convention used
+        // in human-authored fixtures like #3074-postfix's `InvalidImageContentException`.
         using var ctx = AssemblyContext.Load(FixturePath);
         var m = ctx.AllMethods()
             .First(md => md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.ThrowHelpers" && md.Name == "ThrowOutOfRange");
 
-        SanitizerShapes.ResolveExceptionType(m).ShouldBe("System.ArgumentOutOfRangeException");
+        SanitizerShapes.ResolveExceptionType(m).ShouldBe("ArgumentOutOfRangeException");
     }
 
     [Fact]
@@ -130,7 +132,7 @@ public class SanitizerShapesTests
 
         match.ShouldNotBeNull();
         match!.OnFailure.Kind.ShouldBe(FailureKind.Throw);
-        match.OnFailure.Exception.ShouldBe("System.ArgumentOutOfRangeException");
+        match.OnFailure.Exception.ShouldBe("ArgumentOutOfRangeException");
         match.EstablishesBound.Target.ShouldBe("x");
         match.EstablishesBound.Relation.ShouldBe(expectedRelation);
         match.EstablishesBound.UpperBound.ShouldBe(expectedUpper);
@@ -202,8 +204,10 @@ public class SanitizerShapesTests
         var match = SanitizerShapes.MatchCompareAndThrow(m);
 
         match.ShouldNotBeNull();
-        // The C# `this.inner!.Offset > limit` produces dotted target "this.inner.Offset".
-        match!.EstablishesBound.Target.ShouldBe("this.inner.Offset");
+        // The C# `this.inner!.Offset > limit` produces dotted target "inner.Offset" — the
+        // implicit `this.` prefix is dropped (matches the unqualified C# convention used in
+        // human-authored fixtures like #3074-postfix's `fileHeader.Value.Offset`).
+        match!.EstablishesBound.Target.ShouldBe("inner.Offset");
         match.EstablishesBound.UpperBound.ShouldBe("limit");
         match.EstablishesBound.Relation.ShouldBe("<=");
     }
@@ -218,8 +222,9 @@ public class SanitizerShapesTests
 
         match.ShouldNotBeNull();
         // The C# `this.wrapped!.Value.Limit > limit` should produce dotted target
-        // "this.wrapped.Value.Limit" — exercising the `call get_Value` branch in BuildDottedFieldChain.
-        match!.EstablishesBound.Target.ShouldBe("this.wrapped.Value.Limit");
+        // "wrapped.Value.Limit" — exercising the `call get_Value` branch in BuildDottedFieldChain.
+        // The implicit `this.` prefix is dropped (matches the unqualified C# convention).
+        match!.EstablishesBound.Target.ShouldBe("wrapped.Value.Limit");
         match.EstablishesBound.UpperBound.ShouldBe("limit");
         match.EstablishesBound.Relation.ShouldBe("<=");
     }
