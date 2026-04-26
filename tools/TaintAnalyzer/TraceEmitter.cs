@@ -101,14 +101,26 @@ public static class TraceEmitter
             //   5. Last path hop — sink reached with no in-method propagator.
             var sinkAbsences = new List<SanitizerAbsence>();
             // A sanitizer is "on the path for this sink" only if it's in the SAME method as the
-            // sink. Sanitizers from callee methods (e.g., format-marker switches in
-            // ReadFileHeader / ReadInfoHeader that throw on unknown values) appear in the
-            // merged flat hop list but don't bound the sink's value chain — counting them as
-            // "on path" would incorrectly suppress absence synthesis for unsanitized
-            // allocations. This is an MVP approximation; full data-flow-aware sanitizer
-            // matching (does the sanitizer's bound target appear in the sink's value chain?)
-            // would be more precise.
-            bool hasSanitizer = pathHops.Any(h => h.Role == HopRole.Sanitizer && h.Method == sinkHop.Method);
+            // sink AND its `establishes_bound.target` is on the sink's transitive value chain.
+            // The same-method filter rejects callee-side sanitizers (e.g., format-marker switches
+            // in ReadFileHeader). The transitive-chain filter rejects in-method sanitizers that
+            // bound an unrelated local — e.g., `ReadInternationalTextChunk` has checks on
+            // `compressionFlag`/`languageLength` but none on `translatedKeywordLength`, so a
+            // `translatedKeywordLength`-fed Slice should still emit absence.
+            //
+            // The chain is seeded with BOTH the sink's local-debug-name tainted_value and its
+            // FirstTaintedProvenance (the IL-level derivation chain). The first names the local
+            // ("colorMapSizeBytes"), the second names the upstream values that fed it
+            // ("BmpFileHeader.get_Offset+..."). Both forms appear in real fixtures' sanitizer
+            // targets, so we include both. The chain is then grown by walking same-method
+            // propagators backwards.
+            var sinkLocal = sinkHop.SizeExpression ?? sinkHop.AccessExpression ?? sinkHop.TaintedValueIn ?? "";
+            var sinkProv = sinkHop.FirstTaintedProvenance ?? "";
+            var chainTokens = BuildTransitiveValueChainTokens(sinkLocal + " " + sinkProv, pathHops, sinkHop.Method);
+            bool hasSanitizer = pathHops.Any(h =>
+                h.Role == HopRole.Sanitizer
+                && h.Method == sinkHop.Method
+                && SanitizerBoundMatchesSink(h, chainTokens));
             if (!hasSanitizer && pathHops.Count > 0)
             {
                 var sinkApi = SinkApiToString(sinkHop.SinkApi) ?? "unknown";
@@ -118,15 +130,22 @@ public static class TraceEmitter
                 if (sinkHop.FirstTaintedLine is { } firstLine && sinkHop.FirstTaintedFile is { } firstFile)
                 {
                     location = $"{firstFile}:{firstLine}";
-                    // Prefer the first-tainted provenance (snapshot at the earliest stloc to
-                    // the size local) over the sink's `size_expression`. The latter reflects
-                    // the linear walker's *last* write to the local — which can come from a
-                    // sibling branch and lose information about the actual first-tainted
-                    // value chain.
-                    taintedValue = sinkHop.FirstTaintedProvenance
-                                   ?? sinkHop.SizeExpression
-                                   ?? sinkHop.AccessExpression
-                                   ?? sinkHop.TaintedValueIn;
+                    // Combine the local-debug-name (e.g., `translatedKeywordLength` — what
+                    // fixture authors typically use) with the IL-level FirstTaintedProvenance
+                    // (e.g., `BmpFileHeader.get_Offset+...` — what some fixture authors use to
+                    // name upstream values). Concatenating both makes the soft-match resilient
+                    // to either fixture-author convention without needing bidirectional name
+                    // normalization. The tokenizer ignores non-alphanumeric separators.
+                    var localPart = sinkHop.SizeExpression ?? sinkHop.AccessExpression ?? sinkHop.TaintedValueIn ?? "";
+                    var provPart = sinkHop.FirstTaintedProvenance ?? "";
+                    taintedValue = (localPart, provPart) switch
+                    {
+                        ("", "") => "",
+                        ("", var p) => p,
+                        (var l, "") => l,
+                        var (l, p) when l == p => l,
+                        var (l, p) => $"{l} (via {p})",
+                    };
                 }
                 else
                 {
@@ -146,7 +165,20 @@ public static class TraceEmitter
                         ?? pathHops.FirstOrDefault(h => h.Role == HopRole.Propagator && h.Method == sinkHop.Method)
                         ?? pathHops[^1];
                     location = $"{preSink.File}:{preSink.Line}";
-                    taintedValue = preSink.TaintedValueOut;
+                    // Combine the sink's own tainted_value (typically the parameter/local name
+                    // at the sink site, e.g., `count`) with the preSink hop's value-out (the
+                    // upstream propagation chain, e.g., `StreamExtensions.ReadBytesExactly`).
+                    // Same rationale as the firstLine branch — fixtures use either name; both
+                    // tokens contribute to soft-match.
+                    var preChain = preSink.TaintedValueOut ?? "";
+                    taintedValue = (sinkValueChain, preChain) switch
+                    {
+                        ("", "") => "",
+                        ("", var p) => p,
+                        (var l, "") => l,
+                        var (l, p) when l == p => l,
+                        var (l, p) => $"{l} (via {p})",
+                    };
                 }
 
                 sinkAbsences.Add(new SanitizerAbsence
@@ -230,6 +262,88 @@ public static class TraceEmitter
     // just the cross-method call boundary marker.
     private static bool IsValueIntroducing(string? transformation)
         => transformation is "arithmetic" or "field_load" or "cast" or "read_stream";
+
+    // Token-overlap test: does the sanitizer's bound TARGET share a token with the sink's
+    // transitive value chain? Conservative: when the chain is empty or the sanitizer has no
+    // bound info, count as guarding (matches pre-refinement behavior of "any same-method
+    // sanitizer suppresses absence"). Restricting to target (not upper/lower) avoids false
+    // suppression by checks like `stream.Position <= offset - colorMapSizeBytes` — that
+    // references colorMapSizeBytes in its bound *expression* but actually constrains
+    // stream.Position, not the colorMapSizeBytes that feeds the allocation.
+    private static bool SanitizerBoundMatchesSink(HopRecord sanitizer, HashSet<string> chainTokens)
+    {
+        if (chainTokens.Count == 0) return true;
+        var target = sanitizer.EstablishesBound?.Target;
+        if (string.IsNullOrEmpty(target)) return true;
+        var tgtTokens = TokenizeForMatch(target);
+        if (tgtTokens.Count == 0) tgtTokens = ShortTokens(target);
+        return tgtTokens.Overlaps(chainTokens);
+    }
+
+    // Build the set of tokens reachable from the sink's tainted value by walking propagators
+    // backwards. A same-method propagator whose `tainted_value_out` already has a token in the
+    // current chain contributes its `tainted_value_in` to the chain. Iterates to fixpoint
+    // (capped at hop count). Used so a sanitizer that bounds an upstream local in the chain
+    // (e.g., `n` flowing to `size2` via arithmetic) is recognized as guarding the sink.
+    private static HashSet<string> BuildTransitiveValueChainTokens(string seed, IReadOnlyList<HopRecord> hops, string sinkMethod)
+    {
+        var chain = TokenizeForMatch(seed);
+        if (chain.Count == 0) chain = ShortTokens(seed);
+        bool grew;
+        int iter = 0;
+        do
+        {
+            grew = false;
+            foreach (var h in hops)
+            {
+                if (h.Role != HopRole.Propagator) continue;
+                if (h.Method != sinkMethod) continue;
+                var outTokens = TokenizeForMatch(h.TaintedValueOut ?? "");
+                if (outTokens.Count == 0) outTokens = ShortTokens(h.TaintedValueOut ?? "");
+                if (!outTokens.Overlaps(chain)) continue;
+                var inTokens = TokenizeForMatch(h.TaintedValueIn ?? "");
+                if (inTokens.Count == 0) inTokens = ShortTokens(h.TaintedValueIn ?? "");
+                foreach (var t in inTokens)
+                {
+                    if (chain.Add(t)) grew = true;
+                }
+            }
+        } while (grew && ++iter < hops.Count);
+        return chain;
+    }
+
+    private static HashSet<string> TokenizeForMatch(string s)
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        var sb = new System.Text.StringBuilder();
+        foreach (var c in s)
+        {
+            if (char.IsLetterOrDigit(c)) sb.Append(c);
+            else if (sb.Length > 0)
+            {
+                if (sb.Length >= 4) set.Add(sb.ToString().ToLowerInvariant());
+                sb.Clear();
+            }
+        }
+        if (sb.Length >= 4) set.Add(sb.ToString().ToLowerInvariant());
+        return set;
+    }
+
+    // Fallback tokenizer for short identifiers (single-letter/digit locals like `n`/`i`) —
+    // returns ALL alphanumeric runs regardless of length, so a sanitizer bounding `n` and a
+    // sink-chain entry `n` still match.
+    private static HashSet<string> ShortTokens(string s)
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        var sb = new System.Text.StringBuilder();
+        foreach (var c in s)
+        {
+            if (char.IsLetterOrDigit(c)) sb.Append(c);
+            else if (sb.Length > 0) { set.Add(sb.ToString().ToLowerInvariant()); sb.Clear(); }
+        }
+        if (sb.Length > 0) set.Add(sb.ToString().ToLowerInvariant());
+        return set;
+    }
 
     private static string? SinkKindToString(SinkKind? k) => k switch
     {

@@ -83,16 +83,31 @@ public static class SanitizerShapes
         var fallThrough = conditionalBranch.Next;
         if (fallThrough is null) return null;
 
-        var branchTargetOutcome = ClassifyArm(target);
-        var fallThroughOutcome  = ClassifyArm(fallThrough);
+        bool isVoidMethod = containingMethod.ReturnType.FullName == "System.Void";
+        var branchTargetOutcome = ClassifyArm(target, isVoidMethod);
+        var fallThroughOutcome  = ClassifyArm(fallThrough, isVoidMethod);
 
         // "Failure" = the arm that reaches a throw-helper-exit or a ret without further propagation.
         bool targetIsFailure = branchTargetOutcome.IsFailure;
         bool fallIsFailure   = fallThroughOutcome.IsFailure;
 
+        // Tie-breaker: when both arms look like failure, prefer Throw over ReturnEarly. The
+        // ReturnEarly classification on a bare `ret` in a void method is ambiguous — every void
+        // method ends with `ret`, so an arm that immediately reaches `ret` could be either a
+        // genuine early-return guard OR the safe-side normal exit of an if-throw. A Throw arm,
+        // by contrast, is structurally unambiguous (it reaches a throw-helper). When the two
+        // appear together, the bare-ret arm is the safe path.
+        if (targetIsFailure && fallIsFailure)
+        {
+            if (branchTargetOutcome.Kind == FailureKind.Throw && fallThroughOutcome.Kind == FailureKind.ReturnEarly)
+                fallIsFailure = false;
+            else if (branchTargetOutcome.Kind == FailureKind.ReturnEarly && fallThroughOutcome.Kind == FailureKind.Throw)
+                targetIsFailure = false;
+        }
+
         if (targetIsFailure == fallIsFailure)
         {
-            // Neither arm (or both) look like failure — not a sanitizer shape.
+            // Neither arm (or both, with no tie-break) look like failure — not a sanitizer shape.
             return null;
         }
 
@@ -122,7 +137,7 @@ public static class SanitizerShapes
     //   - void-method safe tail (`ret` alone, no preceding load) → NOT failure
     //   - `if (x<0) return -1;` guard path → ldc.i4.m1 then ret → ReturnEarly failure
     //   - `nop; br; ret` safe-branch exit → no value load → NOT failure
-    private static ArmOutcome ClassifyArm(Instruction start)
+    private static ArmOutcome ClassifyArm(Instruction start, bool isVoidContainingMethod)
     {
         const int budget = 40;
         var cur = start;
@@ -163,10 +178,13 @@ public static class SanitizerShapes
 
             if (cur.OpCode == OpCodes.Ret)
             {
-                // Only treat this `ret` as an early-return failure when the arm loaded a
-                // concrete value (ldc/ldarg) and performed no arithmetic. If neither condition
-                // holds it is the normal method exit, not a guard short-circuit.
-                bool isEarlyReturn = sawValueLoad && !sawArithmetic;
+                // For void methods, a bare `ret` (no preceding value load, no arithmetic) IS an
+                // early-return guard — `if (x<0) return;` compiles to just `ret`. For
+                // non-void methods, an early-return arm must produce a sentinel value (`return
+                // -1;` etc.) and not do real computation.
+                bool isEarlyReturn = isVoidContainingMethod
+                    ? !sawArithmetic
+                    : (sawValueLoad && !sawArithmetic);
                 return isEarlyReturn
                     ? new ArmOutcome(true, FailureKind.ReturnEarly, null)
                     : new ArmOutcome(false, default, null);
@@ -273,6 +291,7 @@ public static class SanitizerShapes
 
             var bound = ReadBoundFromSafeSide(effectiveCode, operands, sides.FailureSideIsBranchTarget);
             if (bound is null) continue;
+            bound = NormalizeAdditiveOffset(bound);
 
             string? exception = null;
             if (sides.FailureKind == FailureKind.Throw && sides.ThrowHelper is { } helper)
@@ -358,7 +377,38 @@ public static class SanitizerShapes
         // Step 2: skip stloc / stloc.s / stloc.0..3.
         if (cur is null) return false;
         if (!IsStloc(cur.OpCode.Code)) return false;
+        var stlocIns = cur;
         cur = cur.Previous;
+
+        // Step 2.5: detect compound short-circuit ('||' / '&&' lowering). When the value feeding
+        // the stloc came from one arm of a merge — C# `||` lowers (in debug) to:
+        //   <cond1>; brtrue MERGE_TRUE
+        //   <cond2-comparison>; br.s MERGE
+        //   MERGE_TRUE: ldc.i4.1
+        //   MERGE: stloc V_; ldloc V_; brfalse SAFE
+        // — walking straight back from stloc lands on the constant-load arm (`ldc.i4.1`/`ldc.i4.0`),
+        // not on the comparison opcode. Walk back through that constant-load to find a `br/br.s`
+        // whose target is the stloc; the instruction immediately before that branch is the
+        // comparison feeding the OTHER arm. Per spec O5: compound conditions collapse to the
+        // SECOND condition's bound; the first condition's bound is captured implicitly by the merge.
+        {
+            var probe = cur;
+            int probeBudget = 5;
+            while (probe is not null && probeBudget-- > 0)
+            {
+                if ((probe.OpCode.Code == Code.Br || probe.OpCode.Code == Code.Br_S)
+                    && probe.Operand is Instruction tgt && tgt == stlocIns)
+                {
+                    var compCandidate = probe.Previous;
+                    if (compCandidate is not null && IsComparisonOpcode(compCandidate.OpCode.Code))
+                    {
+                        cur = compCandidate;   // jump to the second-condition comparison
+                    }
+                    break;
+                }
+                probe = probe.Previous;
+            }
+        }
 
         // Step 3: optional negation pattern: ceq; ldc.i4.0 (in reverse: ldc.i4.0 is actually BEFORE ceq).
         // In forward IL: cgt; ldc.i4.0; ceq; stloc → so walking back: stloc ← ceq ← ldc.i4.0 ← cgt
@@ -465,8 +515,11 @@ public static class SanitizerShapes
             case Code.Ldarg_2: return method.HasThis ? method.Parameters[1].Name : method.Parameters[2].Name;
             case Code.Ldarg_3: return method.HasThis ? method.Parameters[2].Name : method.Parameters[3].Name;
             case Code.Ldarg:
-            case Code.Ldarg_S when ins.Operand is ParameterDefinition:
-                return ((ParameterDefinition)ins.Operand).Name;
+            case Code.Ldarg_S:
+            case Code.Ldarga:
+            case Code.Ldarga_S:
+                if (ins.Operand is ParameterDefinition pd) return pd.Name;
+                return null;
             case Code.Ldloc:
             case Code.Ldloc_S:
                 return LocalName(method, ((VariableDefinition)ins.Operand).Index);
@@ -536,6 +589,26 @@ public static class SanitizerShapes
             case Code.Conv_R4:
             case Code.Conv_R8:
                 return ins.Previous is null ? null : OperandName(ins.Previous, method);
+
+            // Additive arithmetic: compose "<L> + <R>" / "<L> - <R>" by stack-effect-aware
+            // lookup of the two operand pushers. Used so a comparison left-operand like
+            // `(zeroIndexKeyword + 4)` produces a name string the bound-normalization step
+            // can decompose (target=zeroIndexKeyword, upper-=4).
+            case Code.Add:
+            case Code.Add_Ovf:
+            case Code.Add_Ovf_Un:
+            case Code.Sub:
+            case Code.Sub_Ovf:
+            case Code.Sub_Ovf_Un:
+                {
+                    var (l, r) = FindOperandPushers(ins, method, depthAtComparison: 2);
+                    if (l is null || r is null) return null;
+                    var ln = OperandName(l, method);
+                    var rn = OperandName(r, method);
+                    if (ln is null || rn is null) return null;
+                    bool isAdd = ins.OpCode.Code is Code.Add or Code.Add_Ovf or Code.Add_Ovf_Un;
+                    return $"{ln} {(isAdd ? "+" : "-")} {rn}";
+                }
         }
         return null;
     }
@@ -852,5 +925,49 @@ public static class SanitizerShapes
             UpperBound = upper,
             LowerBound = lower,
         };
+    }
+
+    // If the bound's target carries a trailing additive offset like "X + N" or "X - N", strip
+    // it and adjust the upper/lower bound by the inverse offset. Preserves comparison semantics:
+    //   (X + 4) <= Y      ↔  X <= Y - 4
+    //   (X - 4) >= Y      ↔  X >= Y + 4
+    // This lets the analyzer's natural rendering of `(zeroIndexKeyword + 4) <= data.Length`
+    // match a fixture-author bound `zeroIndexKeyword <= data.Length - 4`.
+    private static EstablishesBound NormalizeAdditiveOffset(EstablishesBound b)
+    {
+        var (stripped, offset) = TryStripTrailingOffset(b.Target);
+        if (offset == 0) return b;
+        return new EstablishesBound
+        {
+            Target = stripped,
+            Relation = b.Relation,
+            UpperBound = b.UpperBound is { } u ? ApplyOffset(u, -offset) : null,
+            LowerBound = b.LowerBound is { } l ? ApplyOffset(l, -offset) : null,
+        };
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex TrailingOffsetRegex =
+        new(@"^(.+?)\s*([+\-])\s*(\d+)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static (string Stripped, long Offset) TryStripTrailingOffset(string s)
+    {
+        var m = TrailingOffsetRegex.Match(s);
+        if (!m.Success) return (s, 0);
+        if (!long.TryParse(m.Groups[3].Value, out var n)) return (s, 0);
+        return (m.Groups[1].Value, m.Groups[2].Value == "+" ? n : -n);
+    }
+
+    private static string ApplyOffset(string bound, long offset)
+    {
+        if (offset == 0) return bound;
+        var m = TrailingOffsetRegex.Match(bound);
+        if (m.Success && long.TryParse(m.Groups[3].Value, out var existingN))
+        {
+            long signed = m.Groups[2].Value == "+" ? existingN : -existingN;
+            long combined = signed + offset;
+            if (combined == 0) return m.Groups[1].Value;
+            return $"{m.Groups[1].Value} {(combined >= 0 ? "+" : "-")} {Math.Abs(combined)}";
+        }
+        return $"{bound} {(offset >= 0 ? "+" : "-")} {Math.Abs(offset)}";
     }
 }

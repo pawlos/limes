@@ -10,6 +10,15 @@ public sealed class TaintWalker
     // Seeded-fields-as-string keeps the key value-typed-equality friendly without a custom comparer.
     private readonly Dictionary<(string fullName, int bitmask, string seedKey), MethodSummary> _memo = new();
 
+    // Recursion depth guard. The (FullName, bitmask, seedKey) memo handles ordinary cycles, but
+    // when a method's caller re-enters with progressively larger `seedKey`s — typical when a
+    // chunk-loop accumulates this-field taint per iteration and propagates the growing set into
+    // each callee — each iteration's memo key differs and the placeholder never fires. The depth
+    // limit caps that growth; methods walked past the limit return an empty summary (matching
+    // the "couldn't reach sink" semantics already used for unresolved callees).
+    private int _depth;
+    private const int MaxDepth = 256;
+
     public TaintWalker(AssemblyContext context) => _context = context;
 
     public MethodSummary Walk(MethodDefinition method, int taintedParamBitmask)
@@ -24,24 +33,40 @@ public sealed class TaintWalker
             return cached;
         }
 
+        if (_depth >= MaxDepth)
+        {
+            return EmptySummary(method, taintedParamBitmask);
+        }
+
         // Sentinel placeholder breaks recursion on cycles — the recursive call sees this empty
         // summary and returns immediately, completing the cycle without infinite descent.
-        var placeholder = new MethodSummary
-        {
-            MethodFullName = method.FullName,
-            TaintedParamBitmask = taintedParamBitmask,
-            ReturnsTainted = false,
-            NewlyTaintedThisFields = Array.Empty<string>(),
-            Hops = Array.Empty<HopRecord>(),
-            Absences = Array.Empty<EmittedSanitizerAbsence>(),
-            ReachedSink = false,
-        };
+        var placeholder = EmptySummary(method, taintedParamBitmask);
         _memo[key] = placeholder;
 
-        var summary = WalkMethodBody(method, taintedParamBitmask, taintedThisFields);
+        _depth++;
+        MethodSummary summary;
+        try
+        {
+            summary = WalkMethodBody(method, taintedParamBitmask, taintedThisFields);
+        }
+        finally
+        {
+            _depth--;
+        }
         _memo[key] = summary;
         return summary;
     }
+
+    private static MethodSummary EmptySummary(MethodDefinition method, int taintedParamBitmask) => new()
+    {
+        MethodFullName = method.FullName,
+        TaintedParamBitmask = taintedParamBitmask,
+        ReturnsTainted = false,
+        NewlyTaintedThisFields = Array.Empty<string>(),
+        Hops = Array.Empty<HopRecord>(),
+        Absences = Array.Empty<EmittedSanitizerAbsence>(),
+        ReachedSink = false,
+    };
 
     private static string BuildSeedKey(IReadOnlyCollection<string> taintedThisFields)
     {
@@ -225,6 +250,20 @@ public sealed class TaintWalker
             firstTaintedProvenance = firstAssign.Provenance;
         }
 
+        // Prefer the local's PDB debug name as the sink's tainted_value when the size operand
+        // came from a `ldloc <local>` and the local has a debug name. The propagated symbolic
+        // provenance reflects the value's derivation chain (e.g., `MemoryExtensions.IndexOf(...)`)
+        // — the local's source-level name (`translatedKeywordLength`) is what fixture authors and
+        // bug reports use. Falls back to SizeProvenance when no debug name is available.
+        string taintedValue = m.SizeProvenance;
+        if (sourceLocalIdx is { } li && method.Body?.Variables is { } vars && li < vars.Count)
+        {
+            if (method.DebugInformation?.TryGetName(vars[li], out var dn) == true && !string.IsNullOrEmpty(dn))
+            {
+                taintedValue = dn;
+            }
+        }
+
         hops.Add(new HopRecord
         {
             Hop = hopCounter++,
@@ -232,13 +271,13 @@ public sealed class TaintWalker
             File = sp is null ? "" : Path.GetFileName(sp.Document.Url),
             Line = sp?.StartLine ?? 0,
             Role = HopRole.Sink,
-            TaintedValueIn = m.SizeProvenance,
+            TaintedValueIn = taintedValue,
             Transformation = "identity",
-            TaintedValueOut = m.SizeProvenance,
+            TaintedValueOut = taintedValue,
             SinkKind = m.Kind,
             SinkApi = m.Api,
-            SizeExpression = m.Kind == SinkKind.Allocation ? m.SizeProvenance : null,
-            AccessExpression = m.Kind == SinkKind.SpanAccess ? m.SizeProvenance : null,
+            SizeExpression = m.Kind == SinkKind.Allocation ? taintedValue : null,
+            AccessExpression = m.Kind == SinkKind.SpanAccess ? taintedValue : null,
             FirstTaintedFile = firstTaintedFile,
             FirstTaintedLine = firstTaintedLine,
             FirstTaintedProvenance = firstTaintedProvenance,
@@ -254,6 +293,15 @@ public sealed class TaintWalker
     // sanitizer-absence location.
     private void StoreLocal(MethodDefinition method, Instruction ins, int idx, TaintState state)
     {
+        // Defensive: real-world IL with try/catch/filter regions or compiler-generated state
+        // machines can leave the linear walker's symbolic stack out-of-sync with the actual IL
+        // stack at certain instructions. Treat underflow as "store untainted" rather than
+        // crashing — the value isn't observable through this code path anyway.
+        if (state.Stack.Depth == 0)
+        {
+            state.Locals[idx] = StackSlot.Untainted;
+            return;
+        }
         var value = state.Stack.Pop();
         state.Locals[idx] = value;
         if (value.Tainted && !state.FirstLocalTaintLine.ContainsKey(idx))
@@ -702,7 +750,19 @@ public sealed class TaintWalker
         {
             if (argSlots[i].Tainted) bitmask |= (1 << i);
         }
-        bool anyTaintedInput = bitmask != 0 || (hasThisOnStack && receiverSlot.Tainted);
+        // Receiver-this with a tainted `this`-field counts as a tainted input for the
+        // buffer-fill heuristic — the callee can read from `this.<taintedField>` and write
+        // tainted bytes back into byref / Span / array args. Required for shapes like
+        // `this.TryReadChunk(buffer, out chunk)` where `this.currentStream` is tainted but
+        // the call-site args themselves aren't. Without this, the chain
+        // `Decode → TryReadChunk → ReadInternationalTextChunk` doesn't propagate stream
+        // taint into `chunk.Data`.
+        bool receiverHasTaintedThisField = hasThisOnStack
+            && receiverSlot.Provenance == "this"
+            && state.ThisFields.Values.Any(slot => slot.Tainted);
+        bool anyTaintedInput = bitmask != 0
+            || (hasThisOnStack && receiverSlot.Tainted)
+            || receiverHasTaintedThisField;
 
         // If the callee is in the analyzed assembly, recurse.
         var resolved = SafeResolveMethod(callee);

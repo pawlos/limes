@@ -1,0 +1,3 @@
+vuln_id: imagesharp-3079-prefix
+source_methods:
+  - SixLabors.ImageSharp.Formats.Png.PngDecoderCore::Decode(SixLabors.ImageSharp.IO.BufferedReadStream,System.Threading.CancellationToken)

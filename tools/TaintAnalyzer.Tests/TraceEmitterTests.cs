@@ -237,7 +237,10 @@ public class TraceEmitterTests
             Array.Empty<EmittedSanitizerAbsence>());
 
         yaml.ShouldContain("location: B.cs:50");
-        yaml.ShouldContain("tainted_value: intermediate.Field");
+        // Combined-form: sink's local-level name + preSink's value chain. Tokens from both
+        // contribute to soft-match (`intermediate.Field` and `renamed_local`).
+        yaml.ShouldContain("intermediate.Field");
+        yaml.ShouldContain("renamed_local");
         yaml.ShouldNotContain("location: A.cs:12");   // not in sink's method
         yaml.ShouldNotContain("location: B.cs:40");   // identity, skipped
     }

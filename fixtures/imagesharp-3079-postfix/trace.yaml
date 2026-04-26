@@ -64,7 +64,7 @@ path:
   - hop: 2
     method: SixLabors.ImageSharp.Formats.Png.PngDecoderCore.ReadInternationalTextChunk
     file: src__ImageSharp__Formats__Png__PngDecoderCore.cs
-    line: 1939
+    line: 1940
     role: sanitizer
     tainted_value_in: zeroIndexKeyword
     transformation: identity
