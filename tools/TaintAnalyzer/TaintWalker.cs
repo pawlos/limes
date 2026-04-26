@@ -144,35 +144,8 @@ public sealed class TaintWalker
             for (int i = 0; i < hops.Count; i++) hops[i] = hops[i] with { Hop = i };
         }
 
-        var absences = new List<EmittedSanitizerAbsence>();
-        // Guard: only synthesize an absence when there is a local sink hop; if reachedSink was
-        // bubbled from a callee the sink hop lives in that callee's summary, not here.
-        if (pendingSanitizerHops.Count == 0 && reachedSink && hops.Count > 0
-            && hops.Any(h => h.Role == HopRole.Sink))
-        {
-            // Point at the propagator hop immediately preceding the sink, per spec.
-            var sinkHop = hops.Last(h => h.Role == HopRole.Sink);
-            var sinkIdx = hops.IndexOf(sinkHop);
-            var preSinkIdx = Math.Max(0, sinkIdx - 1);
-            var preSink = hops[preSinkIdx];
-            var sinkFile = sinkHop.File;
-            var sinkLine = sinkHop.Line;
-            var sinkApiDisplay = sinkHop.SinkApi switch
-            {
-                SinkApi.NewArray => "new_array",
-                SinkApi.ArrayPoolRent => "array_pool_rent",
-                SinkApi.SpanSlice => "span_slice",
-                SinkApi.SpanIndex => "span_index",
-                _ => "unknown",
-            };
-            absences.Add(new EmittedSanitizerAbsence
-            {
-                Location = $"{preSink.File}:{preSink.Line}",
-                TaintedValue = preSink.TaintedValueOut,
-                ExpectedCheck = $"{preSink.TaintedValueOut} must be bounded before reaching {sinkApiDisplay} at {sinkFile}:{sinkLine}",
-            });
-        }
-
+        // Sanitizer-absence synthesis lives in TraceEmitter — it has the per-sink path context
+        // needed to decide whether each individual sink in a multi-sink trace is unsanitized.
         return new MethodSummary
         {
             MethodFullName = method.FullName,
@@ -180,7 +153,7 @@ public sealed class TaintWalker
             ReturnsTainted = returnsTainted,
             NewlyTaintedThisFields = newlyTaintedFields.ToArray(),
             Hops = hops,
-            Absences = absences,
+            Absences = Array.Empty<EmittedSanitizerAbsence>(),
             ReachedSink = reachedSink,
         };
     }

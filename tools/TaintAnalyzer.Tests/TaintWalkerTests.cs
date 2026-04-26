@@ -161,10 +161,11 @@ public class TaintWalkerTests
     }
 
     [Fact]
-    public void Walk_PreFix_SynthesizesSanitizerAbsence()
+    public void Walk_PreFixIntraMethodAllocation_HopsContainSinkButWalkerEmitsNoAbsences()
     {
-        // The intra-method allocation fixture from Task 9 has no sanitizer on the path; the walker
-        // should emit exactly one sanitizer_absence entry.
+        // Walker now produces only the hop list — sanitizer-absence synthesis lives in TraceEmitter
+        // (per-sink path context is needed for multi-sink traces). The absence lookup verified by
+        // the previous version of this test now lives in TraceEmitterTests.Emit_SinkWithoutPrecedingSanitizer_*.
         using var ctx = AssemblyContext.Load(FixturePath);
         var walker = new TaintWalker(ctx);
 
@@ -172,10 +173,8 @@ public class TaintWalkerTests
             ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.WalkerFixtures::IntraMethodAllocation(System.Int32)")!,
             taintedParamBitmask: 0b1);
 
-        summary.Absences.ShouldHaveSingleItem();
-        var absence = summary.Absences[0];
-        absence.TaintedValue.ShouldNotBeNullOrEmpty();
-        absence.ExpectedCheck.ShouldContain("must be bounded before reaching");
+        summary.Absences.ShouldBeEmpty();
+        summary.Hops.ShouldContain(h => h.Role == HopRole.Sink && h.SinkApi == SinkApi.NewArray);
     }
 
     [Fact]

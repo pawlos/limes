@@ -90,7 +90,6 @@ public static class Program
         {
             var walker = new TaintWalker(context);
             var allHops = new List<HopRecord>();
-            var allAbsences = new List<EmittedSanitizerAbsence>();
 
             foreach (var sig in rules.SourceMethods!)
             {
@@ -121,10 +120,9 @@ public static class Program
                     TaintedValueOut = source.Parameters.FirstOrDefault()?.Name ?? "arg0",
                 });
                 allHops.AddRange(summary.Hops);
-                allAbsences.AddRange(summary.Absences);
             }
 
-            var yaml = TraceEmitter.Emit(rules, allHops, allAbsences);
+            var yaml = TraceEmitter.Emit(rules, allHops, Array.Empty<EmittedSanitizerAbsence>());
 
             if (outputPath is null)
             {

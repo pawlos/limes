@@ -1,3 +1,4 @@
+using System.Text;
 using TaintAnalyzer.ValidateFixture;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -11,34 +12,108 @@ public static class TraceEmitter
         .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
         .Build();
 
+    // Emits one YAML document per (source, sink) pair, separated by `\n---\n`. Each document is a
+    // self-contained FixtureDocument (source + sink + path + sanitizer_absence). The walker's flat
+    // hop list is partitioned per-sink: each sink's path is the propagator/sanitizer hops between
+    // the most-recent preceding Source hop and the sink itself. Sibling sinks reachable from the
+    // same source share their prefix hops (those hops appear in both documents) — refining to
+    // "ancestors only" partitioning would need per-hop call-depth tracking and is out of scope.
+    //
+    // Sanitizer-absence synthesis lives here (not in the walker) because per-sink path context is
+    // required: an absence is synthesized only when the path between source and sink contains no
+    // sanitizer hop. The `absences` parameter is retained for API compatibility; the walker passes
+    // an empty list and the emitter ignores it.
     public static string Emit(
         RulesDocument rules,
         IReadOnlyList<HopRecord> hops,
         IReadOnlyList<EmittedSanitizerAbsence> absences)
     {
-        var sourceHop = hops.First(h => h.Role == HopRole.Source);
-        var sinkHop = hops.First(h => h.Role == HopRole.Sink);
+        _ = absences;   // walker no longer synthesizes; per-sink synthesis below uses the path
 
-        var doc = new FixtureDocument
+        // Index source/sink hops by position in the flat list so we can pair each sink with the
+        // most-recent preceding source.
+        var sinkIndices = new List<int>();
+        var sourceIndices = new List<int>();
+        for (int i = 0; i < hops.Count; i++)
         {
-            VulnId = rules.VulnId,
-            Source = PathNodeFromHop(sourceHop),
-            Sink = PathNodeFromHop(sinkHop),
-            Path = hops
-                .Where(h => h.Role is HopRole.Propagator or HopRole.Sanitizer)
-                .Select(PathNodeFromHop)
-                .ToList(),
-            SanitizerAbsence = absences
-                .Select(a => new SanitizerAbsence
-                {
-                    Location = a.Location,
-                    TaintedValue = a.TaintedValue,
-                    ExpectedCheck = a.ExpectedCheck,
-                })
-                .ToList(),
-        };
+            if (hops[i].Role == HopRole.Sink) sinkIndices.Add(i);
+            else if (hops[i].Role == HopRole.Source) sourceIndices.Add(i);
+        }
 
-        return s_serializer.Serialize(doc);
+        if (sinkIndices.Count == 0)
+        {
+            // No sinks reached — emit empty output. Caller (Program.cs) writes nothing to stdout
+            // / output file, indicating "analyzer found no tainted sink for these rules".
+            return "";
+        }
+
+        var sb = new StringBuilder();
+        for (int s = 0; s < sinkIndices.Count; s++)
+        {
+            int sinkIdx = sinkIndices[s];
+            var sinkHop = hops[sinkIdx];
+
+            // Most-recent source preceding this sink.
+            int sourceIdx = -1;
+            for (int j = sourceIndices.Count - 1; j >= 0; j--)
+            {
+                if (sourceIndices[j] < sinkIdx) { sourceIdx = sourceIndices[j]; break; }
+            }
+            if (sourceIdx < 0)
+            {
+                // No source before this sink — defensive; shouldn't happen with our walker since
+                // Program.cs always inserts a Source hop before each walked source method.
+                continue;
+            }
+            var sourceHop = hops[sourceIdx];
+
+            // Path: propagator/sanitizer hops between source and sink. We renumber the hops
+            // sequentially (0, 1, 2, …) within each document so each trace reads as a self-
+            // contained chain, mirroring the human-authored fixture style.
+            var pathHops = new List<HopRecord>();
+            for (int i = sourceIdx + 1; i < sinkIdx; i++)
+            {
+                if (hops[i].Role is HopRole.Propagator or HopRole.Sanitizer)
+                {
+                    pathHops.Add(hops[i]);
+                }
+            }
+            var pathNodes = new List<PathNode>(pathHops.Count);
+            for (int i = 0; i < pathHops.Count; i++)
+            {
+                pathNodes.Add(PathNodeFromHop(pathHops[i] with { Hop = i }));
+            }
+
+            // Per-sink absence: synthesize one entry only if no sanitizer hop appears on this
+            // sink's path. Absence location points at the propagator immediately preceding the sink.
+            var sinkAbsences = new List<SanitizerAbsence>();
+            bool hasSanitizer = pathHops.Any(h => h.Role == HopRole.Sanitizer);
+            if (!hasSanitizer && pathHops.Count > 0)
+            {
+                var preSink = pathHops[^1];
+                var sinkApi = SinkApiToString(sinkHop.SinkApi) ?? "unknown";
+                sinkAbsences.Add(new SanitizerAbsence
+                {
+                    Location = $"{preSink.File}:{preSink.Line}",
+                    TaintedValue = preSink.TaintedValueOut,
+                    ExpectedCheck = $"{preSink.TaintedValueOut} must be bounded before reaching {sinkApi} at {sinkHop.File}:{sinkHop.Line}",
+                });
+            }
+
+            var doc = new FixtureDocument
+            {
+                VulnId = rules.VulnId,
+                Source = PathNodeFromHop(sourceHop),
+                Sink = PathNodeFromHop(sinkHop),
+                Path = pathNodes,
+                SanitizerAbsence = sinkAbsences,
+            };
+
+            if (sb.Length > 0) sb.Append("---\n");
+            sb.Append(s_serializer.Serialize(doc));
+        }
+
+        return sb.ToString();
     }
 
     private static PathNode PathNodeFromHop(HopRecord h)
