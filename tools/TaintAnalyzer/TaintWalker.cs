@@ -205,6 +205,33 @@ public sealed class TaintWalker
         if (m is null) return false;
 
         var sp = _context.GetSequencePoint(method, ins);
+
+        // If the size operand came directly from a `ldloc <local>` (the common shape for
+        // `new T[localVar]` etc.), attach the local's first-tainted-assignment line to the
+        // sink hop. The trace emitter prefers this for sanitizer_absence location, since it
+        // points at where the value's taint *originated* in the method — even when the
+        // linear walker re-assigned the local across branches and the LAST stloc's
+        // provenance won the symbolic stack.
+        string? firstTaintedFile = null;
+        int? firstTaintedLine = null;
+        var prev = ins.Previous;
+        // Skip over Roslyn-emitted debug nops between the local-load and the sink instruction.
+        while (prev is not null && prev.OpCode.Code == Code.Nop) prev = prev.Previous;
+        int? sourceLocalIdx = prev?.OpCode.Code switch
+        {
+            Code.Ldloc_0 => 0,
+            Code.Ldloc_1 => 1,
+            Code.Ldloc_2 => 2,
+            Code.Ldloc_3 => 3,
+            Code.Ldloc or Code.Ldloc_S => ((VariableDefinition)prev.Operand).Index,
+            _ => (int?)null,
+        };
+        if (sourceLocalIdx is { } idx && state.FirstLocalTaintLine.TryGetValue(idx, out var firstAssign))
+        {
+            firstTaintedFile = Path.GetFileName(firstAssign.File);
+            firstTaintedLine = firstAssign.Line;
+        }
+
         hops.Add(new HopRecord
         {
             Hop = hopCounter++,
@@ -219,8 +246,30 @@ public sealed class TaintWalker
             SinkApi = m.Api,
             SizeExpression = m.Kind == SinkKind.Allocation ? m.SizeProvenance : null,
             AccessExpression = m.Kind == SinkKind.SpanAccess ? m.SizeProvenance : null,
+            FirstTaintedFile = firstTaintedFile,
+            FirstTaintedLine = firstTaintedLine,
         });
         return true;
+    }
+
+    // Stloc helper: store top-of-stack into local `idx`, and remember the first instruction
+    // whose stloc to this local landed a tainted value. Per-local tracking is needed because
+    // a single local can be assigned across multiple branches (linear walking visits all
+    // branches in IL order), and the last stloc's provenance wins on the stack — losing the
+    // "where did taint first enter this local" information that's actually relevant for
+    // sanitizer-absence location.
+    private void StoreLocal(MethodDefinition method, Instruction ins, int idx, TaintState state)
+    {
+        var value = state.Stack.Pop();
+        state.Locals[idx] = value;
+        if (value.Tainted && !state.FirstLocalTaintLine.ContainsKey(idx))
+        {
+            var sp = _context.GetSequencePoint(method, ins);
+            if (sp is not null)
+            {
+                state.FirstLocalTaintLine[idx] = (sp.Document.Url, sp.StartLine);
+            }
+        }
     }
 
     private void EmitPropagatorHop(
@@ -275,13 +324,13 @@ public sealed class TaintWalker
                     break;
                 }
 
-            case Code.Stloc_0: state.Locals[0] = state.Stack.Pop(); break;
-            case Code.Stloc_1: state.Locals[1] = state.Stack.Pop(); break;
-            case Code.Stloc_2: state.Locals[2] = state.Stack.Pop(); break;
-            case Code.Stloc_3: state.Locals[3] = state.Stack.Pop(); break;
+            case Code.Stloc_0: StoreLocal(method, ins, 0, state); break;
+            case Code.Stloc_1: StoreLocal(method, ins, 1, state); break;
+            case Code.Stloc_2: StoreLocal(method, ins, 2, state); break;
+            case Code.Stloc_3: StoreLocal(method, ins, 3, state); break;
             case Code.Stloc:
             case Code.Stloc_S:
-                state.Locals[((VariableDefinition)ins.Operand).Index] = state.Stack.Pop();
+                StoreLocal(method, ins, ((VariableDefinition)ins.Operand).Index, state);
                 break;
 
             case Code.Ldloc_0: state.Stack.Push(state.Locals.GetValueOrDefault(0, StackSlot.Untainted)); break;

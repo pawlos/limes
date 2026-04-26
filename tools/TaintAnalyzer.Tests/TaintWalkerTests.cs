@@ -444,6 +444,27 @@ public class TaintWalkerTests
     }
 
     [Fact]
+    public void Walk_SinkReadsLocal_HopCarriesFirstTaintedLine()
+    {
+        // When the size operand of a `newarr` was loaded via `ldloc <local>`, the sink hop
+        // records (FirstTaintedFile, FirstTaintedLine) — the line where that local first
+        // received a tainted value during the walk. The emitter uses this for sanitizer-
+        // absence location.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.WalkerFixtures::IntraMethodAllocation(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        var sink = summary.Hops.First(h => h.Role == HopRole.Sink);
+        sink.SinkApi.ShouldBe(SinkApi.NewArray);
+        sink.FirstTaintedFile.ShouldNotBeNull();
+        sink.FirstTaintedLine.ShouldNotBeNull();
+        sink.FirstTaintedLine!.Value.ShouldBeGreaterThan(0);
+    }
+
+    [Fact]
     public void Walk_NullableValueChainOnTaintedField_ReachesSink()
     {
         // ldflda on a tainted this-field → tainted address → external Nullable<T>::get_Value()

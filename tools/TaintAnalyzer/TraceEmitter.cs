@@ -85,18 +85,59 @@ public static class TraceEmitter
             }
 
             // Per-sink absence: synthesize one entry only if no sanitizer hop appears on this
-            // sink's path. Absence location points at the propagator immediately preceding the sink.
+            // sink's path. Five-level location preference (most-to-least specific):
+            //
+            //   1. The walker's `FirstTaintedLine` — when the sink reads its size/access value
+            //      directly from a local (e.g., `new T[localVar]`), the walker tracks where
+            //      that local FIRST received a tainted assignment. This points at the value's
+            //      origin even when linear walking re-assigned the local across branches.
+            //   2. First propagator in the sink's method whose `tainted_value_out` is a
+            //      substring of the sink's `size_expression` / `access_expression` — picks a
+            //      hop on the actual value chain feeding the sink.
+            //   3. First *value-introducing* propagator in the sink's method — `arithmetic` /
+            //      `field_load` / `cast` / `read_stream` (skip `identity`, the call-boundary
+            //      marker). Used when no provenance substring matches.
+            //   4. Any propagator in the sink's method — only call-boundary identity hops.
+            //   5. Last path hop — sink reached with no in-method propagator.
             var sinkAbsences = new List<SanitizerAbsence>();
             bool hasSanitizer = pathHops.Any(h => h.Role == HopRole.Sanitizer);
             if (!hasSanitizer && pathHops.Count > 0)
             {
-                var preSink = pathHops[^1];
                 var sinkApi = SinkApiToString(sinkHop.SinkApi) ?? "unknown";
+                string location;
+                string taintedValue;
+
+                if (sinkHop.FirstTaintedLine is { } firstLine && sinkHop.FirstTaintedFile is { } firstFile)
+                {
+                    location = $"{firstFile}:{firstLine}";
+                    taintedValue = sinkHop.SizeExpression ?? sinkHop.AccessExpression ?? sinkHop.TaintedValueIn;
+                }
+                else
+                {
+                    var sinkValueChain = sinkHop.SizeExpression
+                                         ?? sinkHop.AccessExpression
+                                         ?? sinkHop.TaintedValueIn
+                                         ?? "";
+                    var preSink =
+                        pathHops.FirstOrDefault(h => h.Role == HopRole.Propagator
+                                                  && h.Method == sinkHop.Method
+                                                  && IsValueIntroducing(h.Transformation)
+                                                  && !string.IsNullOrEmpty(h.TaintedValueOut)
+                                                  && sinkValueChain.Contains(h.TaintedValueOut!, StringComparison.Ordinal))
+                        ?? pathHops.FirstOrDefault(h => h.Role == HopRole.Propagator
+                                                  && h.Method == sinkHop.Method
+                                                  && IsValueIntroducing(h.Transformation))
+                        ?? pathHops.FirstOrDefault(h => h.Role == HopRole.Propagator && h.Method == sinkHop.Method)
+                        ?? pathHops[^1];
+                    location = $"{preSink.File}:{preSink.Line}";
+                    taintedValue = preSink.TaintedValueOut;
+                }
+
                 sinkAbsences.Add(new SanitizerAbsence
                 {
-                    Location = $"{preSink.File}:{preSink.Line}",
-                    TaintedValue = preSink.TaintedValueOut,
-                    ExpectedCheck = $"{preSink.TaintedValueOut} must be bounded before reaching {sinkApi} at {sinkHop.File}:{sinkHop.Line}",
+                    Location = location,
+                    TaintedValue = taintedValue,
+                    ExpectedCheck = $"{taintedValue} must be bounded before reaching {sinkApi} at {sinkHop.File}:{sinkHop.Line}",
                 });
             }
 
@@ -168,6 +209,11 @@ public static class TraceEmitter
             AccessExpression = h.AccessExpression,
         };
     }
+
+    // Transformations that introduce a tainted value via computation, vs `identity` which is
+    // just the cross-method call boundary marker.
+    private static bool IsValueIntroducing(string? transformation)
+        => transformation is "arithmetic" or "field_load" or "cast" or "read_stream";
 
     private static string? SinkKindToString(SinkKind? k) => k switch
     {
