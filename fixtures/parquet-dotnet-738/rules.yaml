@@ -1,0 +1,5 @@
+vuln_id: parquet-dotnet-738
+source_methods:
+  - signature: Parquet.Meta.Proto.ThriftCompactProtocolReader::ReadBinary()
+    seed_this_fields:
+      - _inputStream

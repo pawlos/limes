@@ -91,20 +91,21 @@ public static class Program
             var walker = new TaintWalker(context);
             var allHops = new List<HopRecord>();
 
-            foreach (var sig in rules.SourceMethods!)
+            foreach (var entry in rules.SourceMethods!)
             {
-                var source = context.FindMethod(sig);
+                var source = context.FindMethod(entry.Signature);
                 if (source is null)
                 {
-                    var suggestion = SuggestNearest(context, sig);
-                    Console.Error.WriteLine($"error: source method not found: {sig}");
+                    var suggestion = SuggestNearest(context, entry.Signature);
+                    Console.Error.WriteLine($"error: source method not found: {entry.Signature}");
                     if (suggestion is not null) Console.Error.WriteLine($"   closest in target: {suggestion}");
                     return 1;
                 }
 
                 // Seed: every non-receiver parameter tainted (source defines which params are attacker-controlled).
                 int bitmask = (1 << source.Parameters.Count) - 1;
-                var summary = walker.Walk(source, bitmask);
+                var seedFields = entry.SeedThisFields ?? (IReadOnlyCollection<string>)Array.Empty<string>();
+                var summary = walker.WalkWithSeed(source, bitmask, seedFields);
 
                 // Emit a `source` hop from the source method's first sequence point.
                 var sp = source.Body is null ? null : context.GetSequencePoint(source, source.Body.Instructions.First());
