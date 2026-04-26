@@ -110,7 +110,15 @@ public static class TraceEmitter
                 if (sinkHop.FirstTaintedLine is { } firstLine && sinkHop.FirstTaintedFile is { } firstFile)
                 {
                     location = $"{firstFile}:{firstLine}";
-                    taintedValue = sinkHop.SizeExpression ?? sinkHop.AccessExpression ?? sinkHop.TaintedValueIn;
+                    // Prefer the first-tainted provenance (snapshot at the earliest stloc to
+                    // the size local) over the sink's `size_expression`. The latter reflects
+                    // the linear walker's *last* write to the local — which can come from a
+                    // sibling branch and lose information about the actual first-tainted
+                    // value chain.
+                    taintedValue = sinkHop.FirstTaintedProvenance
+                                   ?? sinkHop.SizeExpression
+                                   ?? sinkHop.AccessExpression
+                                   ?? sinkHop.TaintedValueIn;
                 }
                 else
                 {

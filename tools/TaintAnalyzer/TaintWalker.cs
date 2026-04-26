@@ -214,6 +214,7 @@ public sealed class TaintWalker
         // provenance won the symbolic stack.
         string? firstTaintedFile = null;
         int? firstTaintedLine = null;
+        string? firstTaintedProvenance = null;
         var prev = ins.Previous;
         // Skip over Roslyn-emitted debug nops between the local-load and the sink instruction.
         while (prev is not null && prev.OpCode.Code == Code.Nop) prev = prev.Previous;
@@ -230,6 +231,7 @@ public sealed class TaintWalker
         {
             firstTaintedFile = Path.GetFileName(firstAssign.File);
             firstTaintedLine = firstAssign.Line;
+            firstTaintedProvenance = firstAssign.Provenance;
         }
 
         hops.Add(new HopRecord
@@ -248,6 +250,7 @@ public sealed class TaintWalker
             AccessExpression = m.Kind == SinkKind.SpanAccess ? m.SizeProvenance : null,
             FirstTaintedFile = firstTaintedFile,
             FirstTaintedLine = firstTaintedLine,
+            FirstTaintedProvenance = firstTaintedProvenance,
         });
         return true;
     }
@@ -267,7 +270,7 @@ public sealed class TaintWalker
             var sp = _context.GetSequencePoint(method, ins);
             if (sp is not null)
             {
-                state.FirstLocalTaintLine[idx] = (sp.Document.Url, sp.StartLine);
+                state.FirstLocalTaintLine[idx] = (sp.Document.Url, sp.StartLine, value.Provenance);
             }
         }
     }

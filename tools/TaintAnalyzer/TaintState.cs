@@ -25,5 +25,5 @@ public sealed class TaintState
     // provenance wins on the symbolic stack. For sanitizer-absence location, however, we want
     // the *earliest* point at which taint enters the local — that's where a guard would
     // semantically belong (matching the human-authored fixtures).
-    public Dictionary<int, (string File, int Line)> FirstLocalTaintLine { get; } = new();
+    public Dictionary<int, (string File, int Line, string Provenance)> FirstLocalTaintLine { get; } = new();
 }

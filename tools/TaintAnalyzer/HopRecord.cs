@@ -54,12 +54,15 @@ public sealed record HopRecord
     public string? AccessExpression { get; init; }
 
     // Sink-only: line where the local feeding the sink's size/access value FIRST received a
-    // tainted assignment in the walked method body. `null` when the sink doesn't read from a
-    // single local (e.g., the size is an inline arithmetic expression with no clean source
-    // local). Used by the trace emitter to pin sanitizer_absence at the value's origin rather
-    // than at the last branch's overwrite site.
+    // tainted assignment in the walked method body, plus the provenance string at that
+    // moment. `null` when the sink doesn't read from a single local (e.g., the size is an
+    // inline arithmetic expression with no clean source local). Used by the trace emitter to
+    // pin sanitizer_absence at the value's origin rather than at the last branch's overwrite
+    // site — and to surface the *first* tainted value's provenance, not the linear-walker's
+    // last-write-wins provenance which may belong to a sibling branch.
     public string? FirstTaintedFile { get; init; }
     public int? FirstTaintedLine { get; init; }
+    public string? FirstTaintedProvenance { get; init; }
 }
 
 public sealed class EmittedSanitizerAbsence
