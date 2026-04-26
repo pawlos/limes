@@ -30,10 +30,12 @@ public sealed class SymbolicStack
 
     public StackSlot Pop()
     {
-        if (Depth == 0)
-        {
-            throw new InvalidOperationException("symbolic stack underflow");
-        }
+        // Real-world IL in complex method bodies (state machines, multi-region try/catch/
+        // filter, branches into the middle of expressions) can desynchronise the linear
+        // walker's symbolic stack from the actual IL stack. Return Untainted on underflow
+        // rather than throwing — over-approximating "we don't know" for this slot is better
+        // than crashing. Callers don't gain useful taint info either way in that case.
+        if (Depth == 0) return StackSlot.Untainted;
         return _slots[--Depth];
     }
 

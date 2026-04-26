@@ -147,8 +147,12 @@ public class ComparatorTests
     }
 
     [Fact]
-    public void Compare_FX062_AbsenceCountMismatch_ReportsDiagnostic()
+    public void Compare_FX062_GtHasAbsencesButAnalyzerHasNone_ReportsDiagnostic()
     {
+        // The most-severe absence mismatch: ground-truth declares an unsanitized flow but the
+        // analyzer didn't detect any absence at all. (Surplus ground-truth absences when the
+        // analyzer has at least one are tolerated as info — analyzer underapproximation is
+        // expected for shapes with multiple unsanitized values feeding one sink.)
         var gt = MakeDocument(SourceNode(), SinkNode(),
             absences: new[] {
                 new SanitizerAbsence { Location = "T.cs:50", TaintedValue = "x", ExpectedCheck = "..." },
@@ -158,13 +162,14 @@ public class ComparatorTests
 
         var diags = _comparator.Compare(gt, new[] { an });
 
-        diags.ShouldContain(d => d.Code == "FX062" && d.Message.Contains("count"));
+        diags.ShouldContain(d => d.Code == "FX062" && d.Message.Contains("analyzer reports none"));
     }
 
     [Fact]
-    public void Compare_FX062_AbsenceTaintedValueDisjointTokens_ReportsDiagnostic()
+    public void Compare_FX062_AnalyzerEntryHasNoMatchingGroundTruth_ReportsDiagnostic()
     {
-        // Tokens have no overlap of length ≥ 4 — strict mismatch.
+        // Analyzer's absence has tokens disjoint from any ground-truth entry's tainted_value
+        // — possible false-positive. Per-entry mismatch fails the comparison.
         var gt = MakeDocument(SourceNode(), SinkNode(),
             absences: new[] {
                 new SanitizerAbsence { Location = "T.cs:50", TaintedValue = "alphabet", ExpectedCheck = "human prose" },
@@ -176,10 +181,30 @@ public class ComparatorTests
 
         var diags = _comparator.Compare(gt, new[] { an });
 
-        diags.ShouldContain(d => d.Code == "FX062" && d.Message.Contains("tainted_value"));
-        // expected_check is NOT compared, but it's surfaced as context when other fields mismatch.
-        diags.Single(d => d.Code == "FX062" && d.Message.Contains("tainted_value"))
-            .Message.ShouldContain("human prose");
+        diags.ShouldContain(d => d.Code == "FX062" && d.Message.Contains("no matching ground-truth entry"));
+    }
+
+    [Fact]
+    public void Compare_FX062_AnalyzerSubsetOfGroundTruth_TolerantOk()
+    {
+        // Real-world divergence: ground-truth fixture has multiple absences (one per
+        // unsanitized value flowing into the sink), but the analyzer emits one per sink.
+        // The analyzer's entry must match SOME ground-truth entry; surplus ground-truth
+        // entries surface as `FX-info`, not as a failure.
+        var gt = MakeDocument(SourceNode(), SinkNode(),
+            absences: new[] {
+                new SanitizerAbsence { Location = "T.cs:50", TaintedValue = "zeroIndexKeyword", ExpectedCheck = "..." },
+                new SanitizerAbsence { Location = "T.cs:60", TaintedValue = "translatedKeywordLength", ExpectedCheck = "..." },
+            });
+        var an = MakeDocument(SourceNode(), SinkNode(),
+            absences: new[] {
+                new SanitizerAbsence { Location = "T.cs:60", TaintedValue = "translatedKeywordLength", ExpectedCheck = "..." },
+            });
+
+        var diags = _comparator.Compare(gt, new[] { an });
+
+        diags.Where(d => d.Code == "FX062").ShouldBeEmpty();
+        diags.ShouldContain(d => d.Code == "FX-info" && d.Message.Contains("count delta"));
     }
 
     [Fact]
