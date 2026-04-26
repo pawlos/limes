@@ -342,6 +342,14 @@ public sealed class NullableFieldHost
             ThrowHelpers.ThrowOutOfRange(nameof(limit));
         }
     }
+
+    // Reads `this.wrapped.Value.Limit` (when wrapped is pre-tainted via the seed API) and
+    // allocates with that size. Verifies ldflda + Nullable<T>::get_Value chain preserves taint
+    // (the actual #3074 shape: this.fileHeader.Value.Offset → arithmetic → new byte[]).
+    public byte[] AllocateFromNullableValueChain()
+    {
+        return new byte[this.wrapped!.Value.Limit];
+    }
 }
 
 // Stand-in for a stream-like API. In-assembly so the walker can recurse into its methods.
@@ -401,6 +409,38 @@ public sealed class CtorTaintHost
     {
         var w = new SizeWrapper(size);
         return new byte[w.Value];
+    }
+}
+
+// Tainted-receiver external call: System.IO.Stream.ReadByte() is unresolved against the
+// analyzed assembly, so the walker hits the "external" branch in HandleCall. Without the
+// external-tainted-input → tainted-return fix, the chain `taintedStream.ReadByte()` drops
+// taint at the call boundary; with the fix, captured field ends up newly tainted.
+public sealed class ExternalReceiverHost
+{
+    public int captured;
+
+    public void StoreFromExternalReadByte(System.IO.Stream s)
+    {
+        int n = s.ReadByte();
+        this.captured = n;
+    }
+}
+
+// Buffer-fill semantics: System.IO.Stream.Read(byte[], int, int) is an external call where
+// receiver (stream) is tainted and the buffer arg is mutated by the call. Our model
+// approximates this by tainting the local that produced the buffer arg (since we don't
+// track per-method mutation summaries). Without GAP-A, `this.captured = buf` doesn't add
+// captured to NewlyTaintedThisFields; with GAP-A, it does.
+public sealed class BufferFillHost
+{
+    public byte[]? captured;
+
+    public void FillBufferThenStore(System.IO.Stream s)
+    {
+        byte[] buf = new byte[16];
+        _ = s.Read(buf, 0, 16);
+        this.captured = buf;
     }
 }
 

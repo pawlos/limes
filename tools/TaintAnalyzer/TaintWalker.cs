@@ -212,9 +212,11 @@ public sealed class TaintWalker
             }
         }
         // MVP: don't seed `this` as tainted from bitmask — Task 10 introduces WalkWithSeed for that.
+        // Use the `ThisRef` sentinel so a later `ldarg.0` push carries the "this" identity through
+        // the stack — receiver detection in stfld/call relies on this.
         if (method.HasThis)
         {
-            state.Args[0] = StackSlot.Untainted;
+            state.Args[0] = StackSlot.ThisRef;
         }
     }
 
@@ -317,6 +319,46 @@ public sealed class TaintWalker
             case Code.Ldloc_S:
                 state.Stack.Push(state.Locals.GetValueOrDefault(((VariableDefinition)ins.Operand).Index, StackSlot.Untainted));
                 break;
+
+            case Code.Ldloca:
+            case Code.Ldloca_S:
+                // Address-of-local: push the local's slot. Subsequent `ldobj`/`call` (byref method)
+                // operates on the underlying value's taint state. Required so passing `&local` to
+                // a method (e.g., Span<>::op_Implicit, Nullable<T>::get_Value) preserves the taint
+                // chain when the local is tainted.
+                state.Stack.Push(state.Locals.GetValueOrDefault(((VariableDefinition)ins.Operand).Index, StackSlot.Untainted));
+                break;
+
+            case Code.Ldarga:
+            case Code.Ldarga_S:
+                {
+                    var pd = (ParameterDefinition)ins.Operand;
+                    int idx = pd.Index + (method.HasThis ? 1 : 0);
+                    state.Stack.Push(state.Args.GetValueOrDefault(idx, StackSlot.Untainted));
+                    break;
+                }
+
+            // Dereference: pop managed pointer/byref, push the pointed-to value with the
+            // same taint. Without this, `Span<T>::get_Item(...)` followed by `ldobj T`
+            // (the standard pattern for `span[i]` returning a struct by value) drops taint
+            // — the ref-to-tainted-element loses its taint when materialized as a value.
+            case Code.Ldobj:
+            case Code.Ldind_I:
+            case Code.Ldind_I1:
+            case Code.Ldind_I2:
+            case Code.Ldind_I4:
+            case Code.Ldind_I8:
+            case Code.Ldind_U1:
+            case Code.Ldind_U2:
+            case Code.Ldind_U4:
+            case Code.Ldind_R4:
+            case Code.Ldind_R8:
+            case Code.Ldind_Ref:
+                {
+                    var addr = state.Stack.Pop();
+                    state.Stack.Push(addr);
+                    break;
+                }
 
             case Code.Ldc_I4_0:
             case Code.Ldc_I4_1:
@@ -510,6 +552,41 @@ public sealed class TaintWalker
                     break;
                 }
 
+            case Code.Ldflda:
+                {
+                    // Load managed pointer to a field. Mirrors ldfld for taint purposes — the
+                    // resulting `&field` is "tainted" iff the underlying field is. Required for
+                    // Nullable<T>.Value access (Roslyn emits `ldflda <Nullable>; call get_Value()`)
+                    // and other byref-call patterns on a struct field.
+                    var fr = (FieldReference)ins.Operand;
+                    var receiver = state.Stack.Pop();
+                    StackSlot result;
+
+                    if (receiver.Tainted)
+                    {
+                        result = StackSlot.TaintedWith($"{receiver.Provenance}.{fr.Name}");
+                    }
+                    else if (state.ThisFields.TryGetValue(fr.FullName, out var fieldSlot) && fieldSlot.Tainted)
+                    {
+                        result = fieldSlot;
+                    }
+                    else
+                    {
+                        result = StackSlot.Untainted;
+                    }
+                    state.Stack.Push(result);
+                    break;
+                }
+
+            case Code.Ldsflda:
+                {
+                    var fr = (FieldReference)ins.Operand;
+                    state.Stack.Push(state.StaticFields.TryGetValue(fr.FullName, out var sfld) && sfld.Tainted
+                        ? sfld
+                        : StackSlot.Untainted);
+                    break;
+                }
+
             case Code.Stfld:
                 {
                     var fr = (FieldReference)ins.Operand;
@@ -604,20 +681,44 @@ public sealed class TaintWalker
         }
         var receiverSlot = hasThisOnStack ? state.Stack.Pop() : default;
 
-        // If the callee is in the analyzed assembly, recurse.
-        var resolved = SafeResolveMethod(callee);
-        if (resolved is null || resolved.Module.Assembly != _context.Assembly)
-        {
-            // External: push untainted return (conservative). Any tainted return from an external call
-            // would need source_methods modelling.
-            if (!IsVoidReturn(callee)) state.Stack.Push(StackSlot.Untainted);
-            return false;
-        }
-
         int bitmask = 0;
         for (int i = 0; i < paramCount; i++)
         {
             if (argSlots[i].Tainted) bitmask |= (1 << i);
+        }
+        bool anyTaintedInput = bitmask != 0 || (hasThisOnStack && receiverSlot.Tainted);
+
+        // If the callee is in the analyzed assembly, recurse.
+        var resolved = SafeResolveMethod(callee);
+        if (resolved is null || resolved.Module.Assembly != _context.Assembly)
+        {
+            // External: same over-approximation as in-assembly — any tainted input surfaces as
+            // tainted return. Required for `Nullable<T>::get_Value()` on a tainted struct,
+            // `Span<>::Slice` / `op_Implicit`, `BinaryPrimitives::ReadInt16LE(rosBuffer)`, etc.
+            // (Without this, the #3074 chain `this.fileHeader.Value.Offset` drops taint at .Value.)
+            if (!IsVoidReturn(callee))
+            {
+                if (anyTaintedInput)
+                {
+                    string prov;
+                    if (hasThisOnStack && receiverSlot.Tainted)
+                    {
+                        prov = $"{receiverSlot.Provenance}.{callee.Name}";
+                    }
+                    else
+                    {
+                        var firstTainted = argSlots.First(s => s.Tainted);
+                        prov = $"{callee.DeclaringType.Name}.{callee.Name}({firstTainted.Provenance})";
+                    }
+                    state.Stack.Push(StackSlot.TaintedWith(prov));
+                }
+                else
+                {
+                    state.Stack.Push(StackSlot.Untainted);
+                }
+            }
+            TaintBufferLikeArgsFromCall(callerMethod, ins, callee, anyTaintedInput, state);
+            return false;
         }
 
         // Determine if the receiver is caller's own `this` BEFORE walking, so we can pass
@@ -657,6 +758,11 @@ public sealed class TaintWalker
                 : "";
             state.Stack.Push(callReturnIsTainted ? StackSlot.TaintedWith(provenance) : StackSlot.Untainted);
         }
+
+        // Buffer-fill semantics: any tainted-flowing call may write into byref / Span / array args.
+        // Mirror the conservative model from the external branch — we don't track per-method
+        // mutation summaries, so over-approximate.
+        TaintBufferLikeArgsFromCall(callerMethod, ins, callee, anyTaintedInput, state);
 
         // Emit a propagator hop for the call boundary if any taint flowed through (return or this-field).
         if (callReturnIsTainted || calleeSummary.NewlyTaintedThisFields.Count > 0 || calleeSummary.ReachedSink)
@@ -807,6 +913,101 @@ public sealed class TaintWalker
 
     private static bool InstructionIsLdarg0(Instruction? ins)
         => ins is not null && ins.OpCode.Code is Code.Ldarg_0;
+
+    // Buffer-fill semantics: when a call has any tainted input AND a parameter is byref / Span<> /
+    // ReadOnlySpan<> / array, treat the call as writing tainted bytes through that arg. We don't
+    // track per-method mutation summaries, so we approximate: walk back from the call site through
+    // the simple-arg-push window and, for buffer-like params, taint the source local / parameter.
+    //
+    // Conservative scope: only handles ldloc.* / ldloca.* / ldarg.* / ldarga.* arg-pushes.
+    // Multi-instruction arg expressions (e.g., `obj.Field` as an arg) are skipped — the corresponding
+    // arg slot stays as-is. Adequate for the #3074 chain where buffers come from `stackalloc` stored
+    // to a local and then pushed via `ldloc <buffer>`.
+    private static void TaintBufferLikeArgsFromCall(
+        MethodDefinition callerMethod,
+        Instruction call,
+        MethodReference callee,
+        bool anyTaintedInput,
+        TaintState state)
+    {
+        if (!anyTaintedInput) return;
+        if (callee.Parameters.Count == 0) return;
+
+        // Identify buffer-like params upfront.
+        var bufferLikeIdx = new List<int>();
+        for (int i = 0; i < callee.Parameters.Count; i++)
+        {
+            if (IsBufferLike(callee.Parameters[i].ParameterType)) bufferLikeIdx.Add(i);
+        }
+        if (bufferLikeIdx.Count == 0) return;
+
+        // Walk back to the arg-push instructions. Total pushes = paramCount + (hasThis ? 1 : 0).
+        // Layout in source order: [receiver?], arg0, arg1, ..., argN-1.
+        int totalPushes = callee.Parameters.Count + (callee.HasThis ? 1 : 0);
+        var pushers = new Instruction?[totalPushes];
+        var cur = call.Previous;
+        for (int slot = totalPushes - 1; slot >= 0 && cur is not null; slot--)
+        {
+            // Skip Roslyn-emitted debug nops.
+            while (cur is not null && cur.OpCode.Code == Code.Nop) cur = cur.Previous;
+            if (cur is null) break;
+            pushers[slot] = cur;
+            cur = cur.Previous;
+        }
+
+        int argZeroSlot = callee.HasThis ? 1 : 0;
+        foreach (var paramIdx in bufferLikeIdx)
+        {
+            var pusher = pushers[argZeroSlot + paramIdx];
+            if (pusher is null) continue;
+            string prov = $"{callee.DeclaringType.Name}.{callee.Name}";
+            switch (pusher.OpCode.Code)
+            {
+                case Code.Ldloc_0: state.Locals[0] = StackSlot.TaintedWith(prov); break;
+                case Code.Ldloc_1: state.Locals[1] = StackSlot.TaintedWith(prov); break;
+                case Code.Ldloc_2: state.Locals[2] = StackSlot.TaintedWith(prov); break;
+                case Code.Ldloc_3: state.Locals[3] = StackSlot.TaintedWith(prov); break;
+                case Code.Ldloc:
+                case Code.Ldloc_S:
+                case Code.Ldloca:
+                case Code.Ldloca_S:
+                    state.Locals[((VariableDefinition)pusher.Operand).Index] = StackSlot.TaintedWith(prov);
+                    break;
+                case Code.Ldarg_0: state.Args[0] = StackSlot.TaintedWith(prov); break;
+                case Code.Ldarg_1: state.Args[1] = StackSlot.TaintedWith(prov); break;
+                case Code.Ldarg_2: state.Args[2] = StackSlot.TaintedWith(prov); break;
+                case Code.Ldarg_3: state.Args[3] = StackSlot.TaintedWith(prov); break;
+                case Code.Ldarg:
+                case Code.Ldarg_S:
+                case Code.Ldarga:
+                case Code.Ldarga_S:
+                    {
+                        var pd = (ParameterDefinition)pusher.Operand;
+                        int idx = pd.Index + (callerMethod.HasThis ? 1 : 0);
+                        state.Args[idx] = StackSlot.TaintedWith(prov);
+                        break;
+                    }
+            }
+        }
+    }
+
+    private static bool IsBufferLike(TypeReference t)
+    {
+        if (t.IsByReference) return true;
+        if (t.IsArray) return true;
+        if (t is GenericInstanceType g)
+        {
+            var n = g.ElementType.FullName;
+            if (n == "System.Span`1" || n == "System.ReadOnlySpan`1" || n == "System.Memory`1" || n == "System.ReadOnlyMemory`1") return true;
+        }
+        else
+        {
+            var n = t.FullName;
+            // Non-generic Span<T>/etc would be unusual but handle anyway.
+            if (n == "System.Span`1" || n == "System.ReadOnlySpan`1") return true;
+        }
+        return false;
+    }
 
     private static void PushImplicitExceptionIfHandlerStart(MethodDefinition method, Instruction ins, TaintState state)
     {

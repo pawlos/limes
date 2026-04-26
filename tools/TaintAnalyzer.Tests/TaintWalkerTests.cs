@@ -427,4 +427,55 @@ public class TaintWalkerTests
         // newarr → sink.
         summary.ReachedSink.ShouldBeTrue();
     }
+
+    [Fact]
+    public void Walk_ExternalCallOnTaintedReceiver_ReturnIsTainted()
+    {
+        // Stream.ReadByte() resolves outside the analyzed assembly → "external" branch in
+        // HandleCall. Without the GAP-B fix, the return is forced untainted, so storing
+        // the result into this.captured would NOT add captured to NewlyTaintedThisFields.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.ExternalReceiverHost::StoreFromExternalReadByte(System.IO.Stream)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.NewlyTaintedThisFields.ShouldContain("captured");
+    }
+
+    [Fact]
+    public void Walk_NullableValueChainOnTaintedField_ReachesSink()
+    {
+        // ldflda on a tainted this-field → tainted address → external Nullable<T>::get_Value()
+        // returns tainted struct → ldfld Limit on tainted struct → tainted size → newarr sink.
+        // Mirrors the ImageSharp #3074 chain `this.fileHeader.Value.Offset`.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var method = ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.NullableFieldHost::AllocateFromNullableValueChain()")!;
+        var summary = walker.WalkWithSeed(method,
+            taintedParamBitmask: 0b0,
+            taintedThisFields: new[] { "wrapped" });
+
+        summary.ReachedSink.ShouldBeTrue();
+        summary.Hops.Last().SinkApi.ShouldBe(SinkApi.NewArray);
+    }
+
+    [Fact]
+    public void Walk_ExternalCallWithBufferLikeArg_TaintsLocalSource()
+    {
+        // Stream.Read(byte[], int, int) is external. Stream is tainted; buf is a local-allocated
+        // byte[]. Without GAP-A, `buf` stays untainted after the call so `this.captured = buf`
+        // doesn't taint captured. With GAP-A, the buf-loading local is tainted by the call,
+        // which propagates through the subsequent stfld.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.BufferFillHost::FillBufferThenStore(System.IO.Stream)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.NewlyTaintedThisFields.ShouldContain("captured");
+    }
 }

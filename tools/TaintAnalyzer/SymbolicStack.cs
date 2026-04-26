@@ -3,6 +3,14 @@ namespace TaintAnalyzer;
 public readonly record struct StackSlot(bool Tainted, string Provenance)
 {
     public static readonly StackSlot Untainted = new(false, "");
+
+    // Sentinel "this" slot — used to seed Args[0] for instance methods so the walker can
+    // reliably identify `this`-rooted receivers regardless of how complex the value expression
+    // before a stfld/call is. (FindStfldReceiverSource's previous-previous heuristic broke for
+    // `this.F = methodCall(args)` — multi-instruction value expressions push the call result
+    // between ldarg.0 and stfld.)
+    public static readonly StackSlot ThisRef = new(false, "this");
+
     public static StackSlot TaintedWith(string provenance) => new(true, provenance);
 }
 
