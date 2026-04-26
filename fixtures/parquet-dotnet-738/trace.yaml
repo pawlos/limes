@@ -1,0 +1,90 @@
+vuln_id: parquet-dotnet-738
+fix_commit: ""
+fix_pr: https://github.com/aloneguid/parquet-dotnet/issues/738
+description: >
+  parquet-dotnet's Apache-Thrift compact-protocol reader allocates a
+  byte[length] sized by an attacker-controlled VarInt32 length prefix without
+  bounding it. ReadBinary reads a VarInt32 from the input stream, then calls
+  Stream.ReadBytesExactly(length) which immediately allocates new byte[length].
+  A crafted Parquet file specifying a huge length can drive the process to
+  OutOfMemoryException (denial-of-service).
+
+source:
+  kind: decoder_entry
+  method: Parquet.Meta.Proto.ThriftCompactProtocolReader.ReadBinary
+  file: src__Parquet__Meta__Proto__ThriftCompactProtocolReader.cs
+  line: 105
+  role: source
+  tainted_value_in: this
+  transformation: read_stream
+  tainted_value_out: length
+  tainted_inputs:
+    - name: _inputStream
+      origin: this_field
+
+sink:
+  kind: allocation
+  api: new_array
+  method: Parquet.Extensions.StreamExtensions.ReadBytesExactly
+  file: src__Parquet__Extensions__StreamExtensions.cs
+  line: 47
+  role: sink
+  tainted_value_in: count
+  transformation: identity
+  tainted_value_out: tmp
+  size_expression: "count"
+
+path:
+  - hop: 0
+    method: Parquet.Meta.Proto.ThriftCompactProtocolReader.ReadBinary
+    file: src__Parquet__Meta__Proto__ThriftCompactProtocolReader.cs
+    line: 107
+    role: propagator
+    tainted_value_in: this
+    transformation: field_load
+    tainted_value_out: _inputStream
+    note: ReadBinary reads from this._inputStream via ReadVarInt32.
+
+  - hop: 1
+    method: Parquet.Meta.Proto.ThriftCompactProtocolReader.ReadVarInt32
+    file: src__Parquet__Meta__Proto__ThriftCompactProtocolReader.cs
+    line: 44
+    role: propagator
+    tainted_value_in: _inputStream
+    transformation: read_stream
+    tainted_value_out: length
+    note: >
+      ReadVarInt32 decodes a Thrift VarInt32 by repeatedly reading bytes from
+      the stream and OR-ing the low 7 bits into the running result. Returns an
+      attacker-controlled int32 — no upper bound applied.
+
+  - hop: 2
+    method: Parquet.Meta.Proto.ThriftCompactProtocolReader.ReadBinary
+    file: src__Parquet__Meta__Proto__ThriftCompactProtocolReader.cs
+    line: 113
+    role: propagator
+    tainted_value_in: length
+    transformation: identity
+    tainted_value_out: count
+    dispatch:
+      kind: direct
+      static_type: Parquet.Extensions.StreamExtensions
+      resolved_targets: []
+      closure_boundary: false
+    note: >
+      The decoded length is passed directly as the count argument to
+      Stream.ReadBytesExactly — no validation between read and allocation.
+
+sanitizer_absence:
+  - location: src__Parquet__Meta__Proto__ThriftCompactProtocolReader.cs:113
+    expected_check: >
+      Before calling ReadBytesExactly(length), verify that length is
+      non-negative AND below a reasonable cap (e.g., remaining stream length,
+      or a configured maximum). The current code accepts any int32 returned
+      from VarInt32 decoding.
+    tainted_value: count
+    present_pre_fix: false
+    present_post_fix: null
+    fix_evidence:
+      commit: ""
+      added_lines: ""

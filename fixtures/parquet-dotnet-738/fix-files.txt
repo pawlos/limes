@@ -1,0 +1,2 @@
+src/Parquet/Meta/Proto/ThriftCompactProtocolReader.cs
+src/Parquet/Extensions/StreamExtensions.cs

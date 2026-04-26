@@ -1,0 +1,6 @@
+{
+  "source_path": "src/Parquet/Meta/Proto/ThriftCompactProtocolReader.cs",
+  "recovered_against_sha": "006fba12174d4fb68bd5fbc3898928c3b75d556b",
+  "recovery_method": "git-show-at-head",
+  "sha256": "0c521e011a6623b9cee9c40df96e9e6e5f9133cb6e326158333e420c78f3d98a"
+}
