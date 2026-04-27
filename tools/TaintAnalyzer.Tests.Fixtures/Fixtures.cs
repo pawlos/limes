@@ -444,20 +444,25 @@ public sealed class BufferFillHost
     }
 }
 
-// Drives U2 (same-method identity-hop filter). The decoder body invokes two helper methods
-// in sequence; both have tainted return values that the analyzer would otherwise emit as
-// identity hops on the call boundary. After U2: only the cross-method boundaries are
-// emitted (not the two consecutive same-method identity rebroadcasts).
+// Drives U2 (same-method identity-hop filter). The decoder body invokes ReadLength twice;
+// between the two calls it performs an arithmetic op that emits a Decode-context hop.
+// That arithmetic hop becomes hops[^1] before the second ReadLength call, so U2's
+// same-method guard fires and suppresses the redundant second Decode/identity hop.
+// ReadLength delegates to ReadByte so its walk emits a ReadLength-context identity hop —
+// those callee hops are preserved because their method label differs from Decode's.
 public static class IdentityFilterFixtures
 {
     public static int[] Decode(byte[] stream)
     {
         var lengthA = ReadLength(stream);
-        var lengthB = ReadLength(stream);
-        return new int[lengthA + lengthB];   // sink — array allocation with tainted size
+        var adjusted = lengthA + lengthA;    // arithmetic — emits a Decode/arithmetic hop
+        var lengthB = ReadLength(stream);    // U2 fires: hops[^1] is Decode/arithmetic
+        return new int[adjusted + lengthB];  // sink — array allocation with tainted size
     }
 
-    public static int ReadLength(byte[] s) => s[0];
+    public static int ReadLength(byte[] s) => ReadByte(s, 0);
+
+    public static int ReadByte(byte[] s, int index) => s[index];
 }
 
 // Mirrors parquet-dotnet ThriftCompactProtocolReader.ReadBinary → ReadBytesExactly
