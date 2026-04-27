@@ -44,8 +44,10 @@ public class TraceEmitterTests
     }
 
     [Fact]
-    public void Emit_PostFixWithSanitizer_EmitsEmptySanitizerAbsenceList()
+    public void Emit_PostFixWithSanitizer_SuppressesDocument()
     {
+        // U1.c: when a sanitizer on the path bounds the sink's transitive value chain,
+        // the document is suppressed entirely — the sink is not actionable.
         var rules = new RulesDocument { VulnId = "v", SourceMethods = new() { "Ns.T::M(System.Int32)" } };
         var sourceHop = new HopRecord
         {
@@ -70,7 +72,8 @@ public class TraceEmitterTests
         var yaml = TraceEmitter.Emit(rules, new[] { sourceHop, sanitizerHop, sink },
             Array.Empty<EmittedSanitizerAbsence>());
 
-        yaml.ShouldMatch(@"sanitizer_absence:\s*\[\s*\]");
+        // U1.c suppresses the document — sanitizer bounds `n` which is the sink's value chain.
+        yaml.ShouldBeEmpty();
     }
 
     [Fact]
@@ -428,11 +431,11 @@ public class TraceEmitterTests
     }
 
     [Fact]
-    public void Emit_SanitizerBetweenSinks_AbsenceOnFirstOnly()
+    public void Emit_SanitizerBetweenSinks_FirstSinkEmitted_SecondSuppressed()
     {
-        // First sink has no sanitizer on its path (source → propagator → sink1) → absence.
-        // Second sink is preceded by a sanitizer that appears between sink1 and sink2 → no absence.
-        // Demonstrates that "sanitizer on path" uses full path from source to that specific sink.
+        // First sink has no sanitizer on its path (source → propagator → sink1) → emitted with absence.
+        // Second sink is preceded by a sanitizer that bounds its value chain (n → size2) → U1.c
+        // suppresses the document entirely.
         var rules = new RulesDocument { VulnId = "v", SourceMethods = new() { "Ns.T::M(System.Int32)" } };
         var src = new HopRecord
         {
@@ -471,16 +474,47 @@ public class TraceEmitterTests
 
         var yaml = TraceEmitter.Emit(rules, new[] { src, prop1, sink1, sanitizer, prop2, sink2 }, Array.Empty<EmittedSanitizerAbsence>());
 
-        var docs = yaml.Split("\n---\n");
-        docs.Length.ShouldBe(2);
+        // U1.c suppresses sink2's document (sanitizer bounds n → size2 chain). Only sink1 emits.
+        yaml.ShouldNotContain("---\n");
+        yaml.ShouldContain("line: 15");
+        yaml.ShouldContain("location: T.cs:13");
+        yaml.ShouldContain("tainted_value: size1");
+        yaml.ShouldNotContain("line: 20");
+    }
 
-        // First doc: only prop1 between source and sink1 → no sanitizer on path → absence at line 13.
-        docs[0].ShouldContain("line: 15");
-        docs[0].ShouldContain("location: T.cs:13");
-        docs[0].ShouldContain("tainted_value: size1");
+    [Fact]
+    public void Emit_SinkBehindSameChainSanitizer_SuppressesDocument()
+    {
+        var rules = new RulesDocument { VulnId = "test-prune", SourceMethods = new() { "Ns.T::M(System.Int32)" } };
+        var sourceHop = new HopRecord
+        {
+            Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 10, Role = HopRole.Source,
+            TaintedValueIn = "stream", Transformation = "read_stream", TaintedValueOut = "stream",
+        };
+        // A sanitizer that bounds `mySize` (which is also the sink's value chain) should suppress the doc.
+        var propagator = new HopRecord
+        {
+            Hop = 1, Method = "Ns.T.M", File = "T.cs", Line = 12, Role = HopRole.Propagator,
+            TaintedValueIn = "stream", Transformation = "read_stream", TaintedValueOut = "mySize",
+        };
+        var sanitizer = new HopRecord
+        {
+            Hop = 2, Method = "Ns.T.M", File = "T.cs", Line = 14, Role = HopRole.Sanitizer,
+            TaintedValueIn = "mySize", Transformation = "identity", TaintedValueOut = "mySize",
+            EstablishesBound = new EstablishesBound { Target = "mySize", Relation = "<=", UpperBound = "1024" },
+            OnFailure = new OnFailure { Kind = FailureKind.Throw, Exception = "System.ArgumentOutOfRangeException" },
+        };
+        var sink = new HopRecord
+        {
+            Hop = 3, Method = "Ns.T.M", File = "T.cs", Line = 20, Role = HopRole.Sink,
+            TaintedValueIn = "mySize", Transformation = "identity", TaintedValueOut = "mySize",
+            SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "mySize",
+        };
 
-        // Second doc: prop1 + sanitizer + prop2 between source and sink2 → sanitizer on path → no absence.
-        docs[1].ShouldContain("line: 20");
-        docs[1].ShouldMatch(@"sanitizer_absence:\s*\[\s*\]");
+        var yaml = TraceEmitter.Emit(rules, new[] { sourceHop, propagator, sanitizer, sink }, Array.Empty<EmittedSanitizerAbsence>());
+
+        // U1.c suppresses the document because a sanitizer in the same method bounds `mySize` —
+        // which IS on the sink's transitive value chain.
+        yaml.ShouldBeEmpty();
     }
 }

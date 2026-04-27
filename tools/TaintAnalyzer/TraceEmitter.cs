@@ -99,6 +99,22 @@ public static class TraceEmitter
                 pathNodes.Add(PathNodeFromHop(pathHops[i] with { Hop = i }));
             }
 
+            // U1.c — sanitizer-suppressed-path pruning. A sanitizer that bounds the sink's
+            // transitive value chain means this sink is NOT unsanitized — skip emitting a
+            // document for it. Reuses BuildTransitiveValueChainTokens (originally written for
+            // absence-suppression) on the same chain seed, so the suppression decision is
+            // consistent with the absence-emission decision.
+            {
+                var sinkChainSeed = (sinkHop.SizeExpression ?? sinkHop.AccessExpression ?? sinkHop.TaintedValueIn ?? "")
+                    + " " + (sinkHop.FirstTaintedProvenance ?? "");
+                var docSuppressionChain = BuildTransitiveValueChainTokens(sinkChainSeed, pathHops, sinkHop.Method);
+                bool suppressed = pathHops.Any(h =>
+                    h.Role == HopRole.Sanitizer
+                    && h.Method == sinkHop.Method
+                    && SanitizerBoundMatchesSink(h, docSuppressionChain));
+                if (suppressed) continue;
+            }
+
             // Per-sink absence: synthesize one entry only if no sanitizer hop appears on this
             // sink's path. Five-level location preference (most-to-least specific):
             //
