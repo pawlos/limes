@@ -1,6 +1,6 @@
 # Milestone A — Pre/post-fix trace of ImageSharp #3079
 
-**Status:** Approved 2026-04-17 (awaiting post-write review before execution).
+**Status:** Implemented 2026-04-18. Schema evolved v0.1 → v0.2 (closed `SinkKinds` / `SinkApis` vocabs, `AccessExpression`, FX015 / FX024, FX023 lower-bound refinement). Pre/post fixtures committed under `fixtures/imagesharp-3079-{prefix,postfix}/`. See revision history.
 **Predecessors:** Milestone 1 (`2026-04-16-imagesharp-3074-trace-design.md`), Milestone B (`2026-04-17-imagesharp-3074-postfix-trace-design.md`).
 **Successor:** Milestone C — tech choice for the analyzer (Roslyn / Cecil-dnlib / ILLink), informed by the combined schema pressure from M1 + B + A.
 
@@ -234,3 +234,8 @@ Structure mirrors M1/M2's `trace.md` (summary / header reference / hop-by-hop / 
 9. Author post-fix `trace.md` and pre-fix `trace.md`.
 10. Annotate M1 and M2 `trace.md` with O5 cross-reference.
 11. Final cross-check: all four fixtures green; build clean.
+
+## Revision history
+
+- **2026-04-17** — Initial spec; approved pending post-write review.
+- **2026-04-18** — Implemented. Pre/post fixtures committed (snippets `c28b5b1`, fix-files `2970535`, post-fix trace.yaml `bcc07ae`, pre-fix trace.yaml `7a828fd`, post-fix trace.md `e2a0b9d`, pre-fix trace.md `fee147a`). O5 (compound sanitizer conditions) cross-referenced on M1/M2 trace.md (`c9e8f8e`) — full mechanical handling deferred until an analyzer needs it. Schema v0.2 (`SinkKinds` / `SinkApis` / `AccessExpression`) is the validator's current schema as of milestone-D. Pre-fix fixture is the milestone-C analyzer's `--compare` bonus target — closed in commit `0ca0692`.

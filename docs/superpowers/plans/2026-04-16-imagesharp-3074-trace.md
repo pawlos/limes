@@ -1,5 +1,7 @@
 # ImageSharp #3074 Trace — Implementation Plan
 
+**Status:** Implemented 2026-04-17. See revision history at end.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Produce a machine-checkable ground-truth trace (YAML fixture + narrative + pre-fix code snippets) of the source→sink path in the ImageSharp #3074 BMP decoder OOM, plus the tooling that validates future fixtures in the same schema.
@@ -1309,3 +1311,10 @@ git commit -m "fixture: final cross-check fixups for #3074 trace" || echo "nothi
 - Additional fixtures (#3067, #3071, #3078, #3079, #3082).
 - Running the decoder / producing a crash PoC for #3074.
 - Generalizing the fixture schema beyond v0.
+
+---
+
+## Revision history
+
+- **2026-04-16** — Plan authored from spec `2026-04-16-imagesharp-3074-trace-design.md`.
+- **2026-04-17** — Implemented. `ValidateFixture` + `ValidateFixture.Tests` projects committed; pre-fix fixture authored under what became `fixtures/imagesharp-3074-prefix/` after the M1→M-B rename in commit `8f0c892`. The validator (FX001–FX051) shipped here is still in active use through milestones C and D. Open question O1 (sanitizer node fields) was the explicit handoff to milestone B.

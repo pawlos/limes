@@ -1,6 +1,6 @@
 # Milestone B — Post-fix trace of ImageSharp #3074
 
-**Status:** Approved 2026-04-17 (awaiting post-write review before execution).
+**Status:** Implemented 2026-04-17. Schema extended (`establishes_bound`, `on_failure`, `Relations`, `FailureKinds`); FX013/FX014/FX023 added. Post-fix fixture committed under `fixtures/imagesharp-3074-postfix/`; pre-fix fixture renamed to `fixtures/imagesharp-3074-prefix/`. See revision history.
 **Predecessor:** Milestone 1 (`2026-04-16-imagesharp-3074-trace-design.md`).
 **Successor:** Milestone A — second-bug fixture from the user's disclosure list (#3067/#3071/#3078/#3079/#3082), TBD.
 
@@ -184,3 +184,8 @@ Mirrors M1's structure with the following deltas:
 6. Validate. Iterate on line numbers if FX041 fires.
 7. Write post-fix `trace.md`; add one-line O1-resolved note to pre-fix `trace.md`.
 8. Final cross-check: both fixtures `OK`, all tests green, build clean.
+
+## Revision history
+
+- **2026-04-17** — Initial spec; approved pending post-write review.
+- **2026-04-17** — Implemented. Schema evolved v0 → v0.1 (`establishes_bound`, `on_failure`, `Relations`, `FailureKinds`). FX013/FX014/FX023 added to validator. Post-fix fixture committed at commit `e05859b` (trace.yaml) / `d9c7e0b` (trace.md) / `e03cc4d` (snippet) / `4765b6c` (fix-files). Open question O1 closed in this milestone — annotated on the pre-fix trace.md in commit `e021581`. The post-fix fixture is the milestone-C analyzer's primary post-fix regression target (commit `648ba08`).

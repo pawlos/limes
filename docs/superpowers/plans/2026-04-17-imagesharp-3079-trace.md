@@ -1,5 +1,7 @@
 # ImageSharp #3079 Pre/Post Trace — Implementation Plan
 
+**Status:** Implemented 2026-04-18. See revision history at end.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Produce pre-fix and post-fix ground-truth traces of ImageSharp #3079 (PNG `ReadInternationalTextChunk` insufficient-data reads), extend the validator to v0.2 (closed `SinkKinds` / `SinkApis` vocabs, FX015/FX024 diagnostics, refined FX023 accepting lower bounds), and keep v0.1 fixtures valid without modification.
@@ -1303,3 +1305,10 @@ git commit -m "fixture: milestone A cross-check fixups" || echo "nothing to comm
 - M1 tech-debt cleanup — still deferred (unifying `Require<T>`/`RequireField<T>`, removing unused `using YamlDotNet.Serialization.NamingConventions`, `.gitattributes` for fixture files, parsing `sanitizer_absence.location` for file:line resolution).
 - Tracing sites 1 (in `ReadCompressedTextChunk`) from #3079 — modeled as out of scope; Sites 2+3 of `ReadInternationalTextChunk` already exercise `return_early` and multi-sanitizer-per-path.
 - A third fixture pair covering a different #3079 site — not needed.
+
+---
+
+## Revision history
+
+- **2026-04-17** — Plan authored from spec `2026-04-17-imagesharp-3079-trace-design.md`.
+- **2026-04-18** — Implemented. Schema v0.1 → v0.2 (closed `SinkKinds` / `SinkApis` vocabs, `AccessExpression`, FX015/FX024, FX023 lower-bound refinement). Pre/post fixtures committed: snippets `c28b5b1`, fix-files `2970535`, post-fix trace.yaml `bcc07ae`, pre-fix trace.yaml `7a828fd`, post-fix trace.md `e2a0b9d`, pre-fix trace.md `fee147a`. O5 (compound sanitizer conditions) cross-referenced on M1/M2 trace.md (`c9e8f8e`); mechanical handling deferred. Pre-fix fixture became milestone-C's bonus reproduction target — closed in commit `0ca0692`.

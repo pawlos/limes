@@ -1,5 +1,7 @@
 # ImageSharp #3074 Post-Fix Trace — Implementation Plan
 
+**Status:** Implemented 2026-04-17. See revision history at end.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Produce a post-fix ground-truth trace of ImageSharp #3074 that exercises open schema question O1, extend the validator with sanitizer-node completeness rules (FX013/FX014/FX023), and restructure the fixtures directory to host pre/post pairs.
@@ -945,3 +947,10 @@ git commit -m "fixture: milestone B cross-check fixups" || echo "nothing to comm
 - Validator tech-debt cleanup: unifying `Require<T>` and `RequireField<T>`, removing unused `using YamlDotNet.Serialization.NamingConventions`, `.gitattributes` for fixture files, adding `sanitizer_absence.location` file:line parsing.
 - Any adjustments to the decoder's CHA closure for hops that don't need it (hops 0, 1, 3, 4, 5 are all direct dispatch).
 - Post-fix line-number variance: if the fix in the shared clone's object database differs from the 6-line-insertion assumption for any reason, the verified line numbers in Step 9.1 are authoritative — do not try to "correct" them back to the assumed values.
+
+---
+
+## Revision history
+
+- **2026-04-17** — Plan authored from spec `2026-04-17-imagesharp-3074-postfix-trace-design.md`.
+- **2026-04-17** — Implemented. Schema v0 → v0.1 (`establishes_bound`, `on_failure`, `Relations`, `FailureKinds`); FX013/FX014/FX023 validator additions. Pre-fix renamed to `fixtures/imagesharp-3074-prefix/` (`8f0c892`); post-fix fixture committed at `e03cc4d`/`4765b6c`/`e05859b`/`d9c7e0b`. Open question O1 (sanitizer fields) closed by this milestone — annotated on pre-fix trace.md in commit `e021581`. The post-fix fixture became milestone-C's primary post-fix regression target (commit `648ba08`).

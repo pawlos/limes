@@ -1,6 +1,6 @@
 # Milestone 1 — Ground-truth trace of ImageSharp #3074
 
-**Status:** Approved 2026-04-16 (awaiting post-write review before execution).
+**Status:** Implemented 2026-04-17. Pre-fix fixture and validator authored per spec; ground-truth `trace.yaml`, `trace.md`, snippet, and fix-files committed under `fixtures/imagesharp-3074-prefix/`. See revision history.
 **Next milestone dependency:** Tech-choice decision (Roslyn / Cecil / ILLink) is blocked on completion of this milestone.
 
 ## Context
@@ -173,3 +173,8 @@ Sections:
 4. Write `trace.yaml`, validating vocabularies as we go.
 5. Write `trace.md` narrating the fixture and recording any open schema questions.
 6. Sanity-check: a reader who doesn't know the bug can follow `trace.md` end-to-end.
+
+## Revision history
+
+- **2026-04-16** — Initial spec; approved pending post-write review.
+- **2026-04-17** — Implemented. Pre-fix fixture authored under `fixtures/imagesharp-3074-prefix/` (later renamed from `fixtures/imagesharp-3074/prefix-snippets/` in commit `8f0c892` to host the pre/post pair side-by-side). Open question O1 (sanitizer node fields) deferred to milestone B and resolved there (commit `e021581` annotated this trace.md). Open question O5 (compound sanitizer conditions) surfaced and cross-referenced in milestone A (commit `c9e8f8e`). The validator (`ValidateFixture`) authored as part of this milestone is still in active use as of milestone-D — FX001–FX051 diagnostics ship from this commit lineage.

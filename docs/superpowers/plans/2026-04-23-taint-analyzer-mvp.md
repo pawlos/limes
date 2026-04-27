@@ -1,5 +1,7 @@
 # Milestone C: Cecil-Based MVP Taint Analyzer — Implementation Plan
 
+**Status:** Implemented 2026-04-27. All required success criteria (1–6) met; bonus criterion #7 (#3079 pre-fix reproduction) closed via Task 24 with folded-in component changes (cross-method recursion bubbling, return-tainted propagation, Span/byref fill modeling, etc.). See revision history at end.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build `tools/TaintAnalyzer/` — a Mono.Cecil-based console app that reads a .NET DLL + rules.yaml and emits a `trace.yaml` conforming to schema v0.2. Extend `ValidateFixture` with a `--compare` mode (FX060/FX061/FX062/FX063) and prove end-to-end reproduction of the ImageSharp #3074 pre-fix AND post-fix ground-truth fixtures.
@@ -5413,3 +5415,10 @@ Plan complete and saved to `docs/superpowers/plans/2026-04-23-taint-analyzer-mvp
 **2. Inline Execution** — executes tasks in the current session using `superpowers:executing-plans`, batch-executed with checkpoints for review. Faster for the early scaffolding tasks but will push context usage hard by the time we reach Tasks 9–12 (TaintWalker iteration).
 
 Which approach?
+
+---
+
+## Revision history
+
+- **2026-04-23** — Plan authored from spec `2026-04-19-taint-analyzer-mvp-design.md` (post-review revision).
+- **2026-04-27** — Implemented. Subagent-Driven execution chosen. All 25 tasks completed; required success criteria 1–6 met. Bonus criterion #7 (#3079 pre-fix `--compare` exit 0) closed in Task 24 via commit `0ca0692` after folding several component-level changes into the milestone (FX062 subset-match relaxation `d94e148`, cross-method ReachedSink bubbling `ab86cc5`, return-tainted propagation `e48e5e8`, callee hop merge `dc6d463`, Span/byref/ldflda value-flow `b29dba5`, exception-handler stack push `25d3d13`, and the rules.yaml object-form for per-source seed_this_fields `d3030ad`). Spec status closure committed in `56d258e`. The analyzer + validator authored in this milestone are the foundation for all subsequent work — milestone-D builds on top of these projects without restructure.
