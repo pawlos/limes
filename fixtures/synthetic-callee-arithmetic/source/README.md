@@ -7,3 +7,7 @@ exposed the milestone-D arithmetic-attribution gap when run blind through the an
 
 The fixture is built outside the main solution by `scripts/build-synthetic-callee-arithmetic.sh`,
 producing `artifacts/synthetic-callee-arithmetic/Decoder.dll` (+ `.pdb`).
+
+The ground-truth `trace.yaml` for this fixture lives one level up at
+`fixtures/synthetic-callee-arithmetic/trace.yaml` and is authored from the analyzer's own
+output (see Task 7 of `docs/superpowers/plans/2026-04-27-milestone-d.md`).
