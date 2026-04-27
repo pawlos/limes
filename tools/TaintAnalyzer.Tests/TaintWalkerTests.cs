@@ -498,4 +498,33 @@ public class TaintWalkerTests
 
         summary.NewlyTaintedThisFields.ShouldContain("captured");
     }
+
+    [Fact]
+    public void Walk_SameMethodIdentityHops_AreFiltered()
+    {
+        // Decode calls ReadLength twice with the same tainted argument. Before U2, the walker
+        // emits one identity propagator hop (in Decode's context) per call — two total — which
+        // is redundant noise. After U2 the second hop is suppressed: when hops[^1] is already
+        // in the same method as the caller, the next same-method identity hop is skipped.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var method = ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.IdentityFilterFixtures::Decode(System.Byte[])")!;
+        var summary = walker.Walk(method, taintedParamBitmask: 0b1);
+
+        // After U2: at most one Decode-context identity hop should remain (the first call to
+        // ReadLength). The second call is suppressed because hops[^1] is already a Decode hop.
+        // Before U2 there were two; the filter removes the consecutive duplicate.
+        var decodeIdentityHops = summary.Hops
+            .Where(h => h.Role == HopRole.Propagator
+                     && h.Transformation == "identity"
+                     && h.Method.EndsWith(".Decode"))
+            .ToList();
+        // Two consecutive calls → only one Decode-context identity hop survives the filter.
+        decodeIdentityHops.Count.ShouldBe(1);
+
+        // The taint still reaches the sink (newarr with lengthA + lengthB).
+        summary.ReachedSink.ShouldBeTrue();
+        summary.Hops.ShouldContain(h => h.Role == HopRole.Sink && h.SinkApi == SinkApi.NewArray);
+    }
 }

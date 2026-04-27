@@ -866,7 +866,16 @@ public sealed class TaintWalker
                 valueIn = "stream";   // best-effort fallback for #3074-style stream forwarding
                 valueOut = "stream";
             }
-            EmitPropagatorHop(callerMethod, ins, "identity", valueIn, valueOut, dispatch, hops, ref hopCounter);
+            // U2: skip emitting an identity propagator hop when the previous emitted hop is in
+            // the SAME method. Cross-method identity hops (call-boundary signal where method
+            // changes) are preserved. The previous-hop check uses Method-string equality rather
+            // than IL-region containment because hop labels mirror the user-facing trace.
+            string callerMethodLabel = $"{callerMethod.DeclaringType.FullName}.{callerMethod.Name}";
+            bool sameMethodAsPrev = hops.Count > 0 && hops[^1].Method == callerMethodLabel;
+            if (!sameMethodAsPrev)
+            {
+                EmitPropagatorHop(callerMethod, ins, "identity", valueIn, valueOut, dispatch, hops, ref hopCounter);
+            }
 
             // Append the callee's hops (the recursive walk's findings) into the caller's hop list,
             // preserving each hop's Method label so the trace shows the cross-method chain.

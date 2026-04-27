@@ -444,6 +444,22 @@ public sealed class BufferFillHost
     }
 }
 
+// Drives U2 (same-method identity-hop filter). The decoder body invokes two helper methods
+// in sequence; both have tainted return values that the analyzer would otherwise emit as
+// identity hops on the call boundary. After U2: only the cross-method boundaries are
+// emitted (not the two consecutive same-method identity rebroadcasts).
+public static class IdentityFilterFixtures
+{
+    public static int[] Decode(byte[] stream)
+    {
+        var lengthA = ReadLength(stream);
+        var lengthB = ReadLength(stream);
+        return new int[lengthA + lengthB];   // sink — array allocation with tainted size
+    }
+
+    public static int ReadLength(byte[] s) => s[0];
+}
+
 // Mirrors parquet-dotnet ThriftCompactProtocolReader.ReadBinary → ReadBytesExactly
 // (issue #738: uncontrolled `new byte[]` from user-controlled varint length).
 public static class ParquetThriftLikeFixtures
