@@ -346,6 +346,82 @@ public class ComparatorTests
     }
 
     [Fact]
+    public void CompareBudget_DefaultMode_AtCeiling_NoDiagnostic()
+    {
+        // Default ceiling: D_a ≤ 3·D_g + 1, H_a ≤ 5·H_g + 10.
+        // GT: 1 doc, 3 hops. Default ceiling: 4 docs, 25 hops.
+        var gt = new[] { MakeDoc(numPathHops: 3) };
+        var an = new[] { MakeDoc(numPathHops: 25), MakeDoc(numPathHops: 0), MakeDoc(numPathHops: 0), MakeDoc(numPathHops: 0) };
+        var diags = new Comparator().CompareBudget(gt, an, strict: false);
+        diags.ShouldBeEmpty();
+    }
+
+    private static FixtureDocument MakeDoc(int numPathHops)
+    {
+        var path = new List<PathNode>();
+        for (int i = 0; i < numPathHops; i++)
+        {
+            path.Add(new PathNode { Hop = i, Method = "M", File = "F.cs", Line = 1, Role = "propagator", TaintedValueIn = "x", Transformation = "identity", TaintedValueOut = "x" });
+        }
+        return new FixtureDocument
+        {
+            VulnId = "test",
+            Source = new PathNode { Method = "M", File = "F.cs", Line = 1, Role = "source", Kind = "decoder_entry", TaintedValueIn = "stream", Transformation = "read_stream", TaintedValueOut = "stream" },
+            Sink   = new PathNode { Method = "M", File = "F.cs", Line = 99, Role = "sink", Kind = "allocation", Api = "new_array", TaintedValueIn = "size", Transformation = "identity", TaintedValueOut = "size", SizeExpression = "size" },
+            Path = path,
+            SanitizerAbsence = new List<SanitizerAbsence>(),
+        };
+    }
+
+    [Fact]
+    public void CompareBudget_DefaultMode_DocCountExceeds_ReportsFX064()
+    {
+        var gt = new[] { MakeDoc(0) };
+        var an = new[] { MakeDoc(0), MakeDoc(0), MakeDoc(0), MakeDoc(0), MakeDoc(0) }; // 5 > 4
+        var diags = new Comparator().CompareBudget(gt, an, strict: false);
+        diags.ShouldContain(d => d.Code == "FX064" && d.Message.Contains("documents"));
+    }
+
+    [Fact]
+    public void CompareBudget_DefaultMode_HopCountExceeds_ReportsFX064()
+    {
+        var gt = new[] { MakeDoc(3) };
+        var an = new[] { MakeDoc(26) }; // 26 > 25
+        var diags = new Comparator().CompareBudget(gt, an, strict: false);
+        diags.ShouldContain(d => d.Code == "FX064" && d.Message.Contains("hops"));
+    }
+
+    [Fact]
+    public void CompareBudget_StrictMode_DocCountStrictlyAboveGt_ReportsFX064()
+    {
+        var gt = new[] { MakeDoc(0) };
+        var an = new[] { MakeDoc(0), MakeDoc(0) }; // 2 > 1
+        var diags = new Comparator().CompareBudget(gt, an, strict: true);
+        diags.ShouldContain(d => d.Code == "FX064" && d.Message.Contains("strict"));
+    }
+
+    [Fact]
+    public void CompareBudget_StrictMode_AtCeiling_NoDiagnostic()
+    {
+        var gt = new[] { MakeDoc(3) };
+        var an = new[] { MakeDoc(6) }; // strict hop ceiling = 2·3 = 6
+        var diags = new Comparator().CompareBudget(gt, an, strict: true);
+        diags.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void CompareBudget_GroundTruthZeroHops_DefensiveCeiling()
+    {
+        // H_g = 0 → default ceiling = 10, strict ceiling = 0.
+        var gt = new[] { MakeDoc(0) };
+        var an = new[] { MakeDoc(10) };
+        var defaultDiags = new Comparator().CompareBudget(gt, an, strict: false);
+        defaultDiags.ShouldBeEmpty();
+        var strictDiags = new Comparator().CompareBudget(gt, an, strict: true);
+        strictDiags.ShouldContain(d => d.Code == "FX064");
+    }
+
+    [Fact]
     public void LoadAll_MultiDocumentYaml_ReturnsAllDocuments()
     {
         const string yaml = """

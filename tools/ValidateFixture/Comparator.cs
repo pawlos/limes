@@ -348,4 +348,35 @@ public sealed class Comparator
         if (string.IsNullOrEmpty(s)) return "<empty>";
         return s.Length <= max ? s : s.Substring(0, max - 1) + "…";
     }
+
+    // FX064: over-emission budget. Counts documents and total hops on each side.
+    // Default mode: D_a ≤ 3·D_g + 1, H_a ≤ 5·H_g + 10 (warnings only — exit code unchanged).
+    // Strict mode:  D_a ≤ D_g,        H_a ≤ 2·H_g       (failures — caller exits 1).
+    // `strict` only affects the diagnostic code returned; the caller decides exit code.
+    public IReadOnlyList<Diagnostic> CompareBudget(
+        IReadOnlyList<FixtureDocument> groundTruth,
+        IReadOnlyList<FixtureDocument> analyzer,
+        bool strict)
+    {
+        var diagnostics = new List<Diagnostic>();
+        int dG = groundTruth.Count;
+        int dA = analyzer.Count;
+        int hG = groundTruth.Sum(d => d.Path?.Count ?? 0);
+        int hA = analyzer.Sum(d => d.Path?.Count ?? 0);
+
+        int dCeiling = strict ? dG : 3 * dG + 1;
+        int hCeiling = strict ? 2 * hG : 5 * hG + 10;
+
+        if (dA > dCeiling)
+        {
+            diagnostics.Add(new Diagnostic("FX064",
+                $"budget exceeded: documents D_a={dA} (≤{dCeiling}) [{(strict ? "strict" : "default")} mode]"));
+        }
+        if (hA > hCeiling)
+        {
+            diagnostics.Add(new Diagnostic("FX064",
+                $"budget exceeded: hops H_a={hA} (≤{hCeiling}) [{(strict ? "strict" : "default")} mode]"));
+        }
+        return diagnostics;
+    }
 }

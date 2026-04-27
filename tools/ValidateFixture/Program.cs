@@ -70,15 +70,26 @@ public static class Program
 
     private static int RunCompare(string[] args)
     {
-        if (args.Length != 3)
+        // Accepted forms:
+        //   --compare <gt> <an>
+        //   --compare <gt> <an> --strict
+        //   --compare --strict <gt> <an>
+        bool strict = false;
+        var positional = new List<string>();
+        for (int i = 1; i < args.Length; i++)
+        {
+            if (args[i] == "--strict") { strict = true; continue; }
+            positional.Add(args[i]);
+        }
+        if (positional.Count != 2)
         {
             Console.Error.WriteLine("error: --compare requires exactly two paths");
             PrintUsage();
             return 2;
         }
 
-        var groundTruthPath = args[1];
-        var analyzerPath = args[2];
+        var groundTruthPath = positional[0];
+        var analyzerPath = positional[1];
 
         if (!File.Exists(groundTruthPath))
         {
@@ -127,12 +138,20 @@ public static class Program
             allDiagnostics.AddRange(comparator.Compare(gt, anDocs));
         }
 
+        var budgetDiagnostics = comparator.CompareBudget(gtDocs, anDocs, strict);
+
         foreach (var d in allDiagnostics)
         {
             Console.Error.WriteLine($"{d.Code} {d.Message}");
         }
+        foreach (var d in budgetDiagnostics)
+        {
+            // Default mode: print to stderr but don't fail. Strict mode: counts toward failures.
+            Console.Error.WriteLine($"{d.Code} {d.Message}");
+        }
 
         var failures = allDiagnostics.Count(d => d.Code != "FX-info");
+        if (strict) failures += budgetDiagnostics.Count;
         if (failures == 0)
         {
             Console.WriteLine($"OK: {analyzerPath} matches {groundTruthPath}");
@@ -146,6 +165,6 @@ public static class Program
     private static void PrintUsage()
     {
         Console.Error.WriteLine("usage: ValidateFixture <trace.yaml> [--snippets-dir <dir>]");
-        Console.Error.WriteLine("       ValidateFixture --compare <ground-truth.yaml> <analyzer-output.yaml>");
+        Console.Error.WriteLine("       ValidateFixture --compare [--strict] <ground-truth.yaml> <analyzer-output.yaml>");
     }
 }
