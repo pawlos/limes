@@ -19,6 +19,12 @@ public sealed class Comparator
         .IgnoreUnmatchedProperties()
         .Build();
 
+    private const int DefaultDocMultiplier = 3;
+    private const int DefaultDocSlack = 1;
+    private const int DefaultHopMultiplier = 5;
+    private const int DefaultHopSlack = 10;
+    private const int StrictHopMultiplier = 2;
+
     public IReadOnlyList<Diagnostic> Compare(FixtureDocument groundTruth, IReadOnlyList<FixtureDocument> analyzerDocs)
     {
         var diagnostics = new List<Diagnostic>();
@@ -364,8 +370,8 @@ public sealed class Comparator
         int hG = groundTruth.Sum(d => d.Path?.Count ?? 0);
         int hA = analyzer.Sum(d => d.Path?.Count ?? 0);
 
-        int dCeiling = strict ? dG : 3 * dG + 1;
-        int hCeiling = strict ? 2 * hG : 5 * hG + 10;
+        int dCeiling = strict ? dG : DefaultDocMultiplier * dG + DefaultDocSlack;
+        int hCeiling = strict ? StrictHopMultiplier * hG : DefaultHopMultiplier * hG + DefaultHopSlack;
 
         if (dA > dCeiling)
         {
