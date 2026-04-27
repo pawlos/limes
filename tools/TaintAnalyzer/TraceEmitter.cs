@@ -32,19 +32,34 @@ public static class TraceEmitter
 
         // Index source/sink hops by position in the flat list so we can pair each sink with the
         // most-recent preceding source.
-        var sinkIndices = new List<int>();
+        var rawSinkIndices = new List<int>();
         var sourceIndices = new List<int>();
         for (int i = 0; i < hops.Count; i++)
         {
-            if (hops[i].Role == HopRole.Sink) sinkIndices.Add(i);
+            if (hops[i].Role == HopRole.Sink) rawSinkIndices.Add(i);
             else if (hops[i].Role == HopRole.Source) sourceIndices.Add(i);
         }
 
-        if (sinkIndices.Count == 0)
+        if (rawSinkIndices.Count == 0)
         {
             // No sinks reached — emit empty output. Caller (Program.cs) writes nothing to stdout
             // / output file, indicating "analyzer found no tainted sink for these rules".
             return "";
+        }
+
+        // U1.a — dedup sinks by (method, line). When two sink hops fire at the same source
+        // location (rare; implies adjacent sink-shape calls on one line, or analyzer re-entry
+        // through a shared callee), the first wins. Avoids emitting near-identical documents.
+        var sinkIndices = new List<int>();
+        var seenSinkLocations = new HashSet<(string method, int line)>();
+        foreach (int idx in rawSinkIndices)
+        {
+            var sh = hops[idx];
+            var key = (sh.Method ?? "", sh.Line);
+            if (seenSinkLocations.Add(key))
+            {
+                sinkIndices.Add(idx);
+            }
         }
 
         var sb = new StringBuilder();

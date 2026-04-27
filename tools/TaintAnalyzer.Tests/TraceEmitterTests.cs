@@ -396,6 +396,38 @@ public class TraceEmitterTests
     }
 
     [Fact]
+    public void Emit_TwoSinkHopsAtSameMethodAndLine_ProducesOneDocument()
+    {
+        var rules = new RulesDocument { VulnId = "test-dedup", SourceMethods = new() { "Ns.T::M(System.Int32)" } };
+        var sourceHop = new HopRecord
+        {
+            Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 10, Role = HopRole.Source,
+            TaintedValueIn = "stream", Transformation = "read_stream", TaintedValueOut = "stream",
+        };
+        var sink1 = new HopRecord
+        {
+            Hop = 1, Method = "Ns.T.M", File = "T.cs", Line = 20, Role = HopRole.Sink,
+            TaintedValueIn = "size", Transformation = "identity", TaintedValueOut = "size",
+            SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "size",
+        };
+        var sink2 = new HopRecord
+        {
+            // Same method + same line as sink1 — should be deduped.
+            Hop = 2, Method = "Ns.T.M", File = "T.cs", Line = 20, Role = HopRole.Sink,
+            TaintedValueIn = "alt", Transformation = "identity", TaintedValueOut = "alt",
+            SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "alt",
+        };
+
+        var yaml = TraceEmitter.Emit(rules, new[] { sourceHop, sink1, sink2 }, Array.Empty<EmittedSanitizerAbsence>());
+
+        // One YAML document only — no `---` separator should appear since dedup collapses to a single doc.
+        yaml.ShouldNotContain("---\n");
+        // The first sink wins.
+        yaml.ShouldContain("size_expression: size");
+        yaml.ShouldNotContain("size_expression: alt");
+    }
+
+    [Fact]
     public void Emit_SanitizerBetweenSinks_AbsenceOnFirstOnly()
     {
         // First sink has no sanitizer on its path (source → propagator → sink1) → absence.
