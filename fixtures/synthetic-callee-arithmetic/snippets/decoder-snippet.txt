@@ -1,0 +1,9 @@
+        ushort recordCount = reader.ReadU16();
+        ushort recordStride = reader.ReadU16();
+        int totalBytes = PayloadSizer.RecordsAreaBytes(recordCount, recordStride);
+        return new byte[totalBytes];
+
+internal static int RecordsAreaBytes(ushort count, ushort stride)
+{
+    return (int)count * (int)stride;
+}
