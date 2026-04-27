@@ -1,0 +1,62 @@
+vuln_id: synthetic-callee-arithmetic
+fix_commit: ""
+fix_pr: ""
+description: >
+  Synthetic regression fixture for milestone-D arithmetic-attribution gap.
+  WireDecoder.Decode reads two u16 fields from a stream, multiplies them via
+  PayloadSizer.RecordsAreaBytes (a helper-class return path), and uses the
+  product to size a new byte[N] allocation. Models the canonical
+  "u16×u16 multiply through a sizing helper" shape observed in real-world
+  protocol parsers. The arithmetic propagator hop must point at the `*`
+  operator inside RecordsAreaBytes, not at the call boundary in Decode.
+
+source:
+  method: SyntheticCalleeArithmetic.WireDecoder.Decode
+  file: Decoder.cs
+  line: 8
+  role: source
+  tainted_value_in: stream
+  transformation: read_stream
+  tainted_value_out: stream
+  kind: decoder_entry
+
+sink:
+  method: SyntheticCalleeArithmetic.WireDecoder.Decode
+  file: Decoder.cs
+  line: 13
+  role: sink
+  tainted_value_in: totalBytes
+  transformation: identity
+  tainted_value_out: totalBytes
+  kind: allocation
+  api: new_array
+  size_expression: totalBytes
+
+path:
+- hop: 0
+  method: SyntheticCalleeArithmetic.WireDecoder.Decode
+  file: Decoder.cs
+  line: 10
+  role: propagator
+  tainted_value_in: new WireReader(stream)
+  transformation: identity
+  tainted_value_out: WireReader.ReadU16
+  dispatch:
+    kind: virtual
+    static_type: SyntheticCalleeArithmetic.WireReader
+    resolved_targets: []
+    closure_boundary: false
+
+- hop: 1
+  method: SyntheticCalleeArithmetic.PayloadSizer.RecordsAreaBytes
+  file: Decoder.cs
+  line: 21
+  role: propagator
+  tainted_value_in: count
+  transformation: arithmetic
+  tainted_value_out: count*stride
+
+sanitizer_absence:
+- location: Decoder.cs:12
+  expected_check: totalBytes (via WireReader.ReadU16) must be bounded before reaching new_array at Decoder.cs:13
+  tainted_value: totalBytes (via WireReader.ReadU16)

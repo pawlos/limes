@@ -4,16 +4,9 @@ namespace SyntheticCalleeArithmetic;
 
 public sealed class WireDecoder
 {
-    private readonly Stream _stream;
-
-    public WireDecoder(Stream stream)
+    public byte[] Decode(Stream stream)
     {
-        _stream = stream;
-    }
-
-    public byte[] Decode()
-    {
-        var reader = new WireReader(_stream);
+        var reader = new WireReader(stream);
         ushort recordCount = reader.ReadU16();
         ushort recordStride = reader.ReadU16();
         int totalBytes = PayloadSizer.RecordsAreaBytes(recordCount, recordStride);
