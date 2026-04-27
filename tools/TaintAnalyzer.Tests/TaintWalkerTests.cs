@@ -515,9 +515,13 @@ public class TaintWalkerTests
         var summary = walker.Walk(method, taintedParamBitmask: 0b11);
 
         summary.Hops.ShouldContain(h => h.Transformation == "arithmetic");
-        var matchingHop = summary.Hops.FirstOrDefault(
-            h => h.Transformation == "arithmetic" && h.TaintedValueOut.Contains(expectedOp));
-        matchingHop.ShouldNotBeNull($"No arithmetic hop with TaintedValueOut containing '{expectedOp}' found; hops: [{string.Join(", ", summary.Hops.Where(h => h.Transformation == "arithmetic").Select(h => h.TaintedValueOut))}]");
+        // The LAST arithmetic hop is the operator-of-interest. For *// the body emits one
+        // arithmetic hop; for <<>> Roslyn compiles `a OP b` into `a OP (b & 31)`, producing two
+        // arithmetic hops (the `and` mask, then the actual shift) — and the shift is always
+        // last. LastOrDefault is robust to either shape.
+        var arithHop = summary.Hops.LastOrDefault(h => h.Transformation == "arithmetic");
+        arithHop.ShouldNotBeNull();
+        arithHop.TaintedValueOut.ShouldContain(expectedOp);
     }
 
     [Fact]
