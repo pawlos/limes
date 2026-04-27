@@ -20,14 +20,14 @@ Milestone-C closed with the analyzer reproducing #3074 pre-fix, #3074 post-fix, 
 This spec covers four coupled decisions:
 
 1. **Validator-side budget (FX064).** Add `--compare --strict` mode with a default-soft / strict-hard budget on emitted document and hop counts. Default mode preserves the milestone-C contract (no `--compare` regression).
-2. **Sink-document dedup + sanitizer-suppressed-path pruning.** Cut document emission via two complementary filters in `TraceEmitter`: collapse multiple sink hops at the same `(sink-method, sink-line)` into a single document, and drop documents whose path-source-to-sink contains a sanitizer that bounds the sink's transitive value chain. Reframed from the original "load-bearing-operand predicate" wording — `SinkShapes` already enforces load-bearing-operand-only matching (verified `tools/TaintAnalyzer/SinkShapes.cs:21,45,78,109` — receiver is never inspected); the actual root cause of the document explosion is callee-sink hops accumulating into the caller's flat hop list (`TaintWalker.cs:875-878`) and `TraceEmitter` emitting one document per sink hop (`TraceEmitter.cs:50-203`).
+2. **Sink-document dedup (U1.a only).** Collapse multiple sink hops at the same `(sink-method, sink-line)` into a single document in `TraceEmitter`. The companion U1.c (sanitizer-suppressed-path pruning) was scoped here originally but de-scoped during execution — see revision history; deferred to milestone-E. Reframed from the original "load-bearing-operand predicate" wording — `SinkShapes` already enforces load-bearing-operand-only matching (verified `tools/TaintAnalyzer/SinkShapes.cs:21,45,78,109` — receiver is never inspected); the actual root cause of the document explosion is callee-sink hops accumulating into the caller's flat hop list (`TaintWalker.cs:875-878`) and `TraceEmitter` emitting one document per sink hop (`TraceEmitter.cs:50-203`).
 3. **Hop-list bloat reduction.** Drop same-method identity propagator hops at emission time inside `TaintWalker`. Cross-method identity hops (call-boundary signal) are preserved. Reframed from the original "same-method same-line" wording — most identity-bloat hops are at distinct lines within the same method (re-reading the #3074 trace confirmed: hops 4-7 of document 1 all in `ReadFileHeader` but at lines 1487/1494/1495/1496), so the line-equality predicate would filter almost nothing.
 4. **Arithmetic transform attribution.** Extend the existing arithmetic-emission paths in `TaintWalker` to cover `mul`/`mul.ovf`/`div`/`shl`/`shr` with file:line pinned to the IL site, plus `OperandName` composition for the same opcodes.
 
 ## Goals
 
 1. Validator gains FX064 (over-emission budget) with default-soft and strict modes; `Program.cs` learns `--strict`.
-2. Analyzer's `TraceEmitter` dedupes sink documents at the same `(method, line)` and suppresses documents whose path contains a sanitizer that bounds the sink's value chain. `TaintWalker` drops same-method identity propagators and correctly attributes arithmetic transforms (`mul`/`mul.ovf`/`div`/`shl`/`shr`) in callee bodies.
+2. Analyzer's `TraceEmitter` dedupes sink documents at the same `(method, line)` (U1.a). `TaintWalker` drops same-method identity propagators (U2) and correctly attributes arithmetic transforms (`mul`/`mul.ovf`/`div`/`shl`/`shr`) in callee bodies (U3). U1.c (sanitizer-suppressed-path pruning) was attempted, reverted, and deferred to milestone-E — see revision history.
 3. New committed fixture `fixtures/synthetic-callee-arithmetic/` exercises the canonical "u16×u16 multiply through a sizing-helper class" pattern that motivated the trace-attribution backlog entry.
 4. Required gate: non-strict `--compare` exit 0 on all existing fixtures plus the new one (no regression).
 5. Bonus gate: strict `--compare` exit 0 on ≥ 3 of 4 fixture pairs. The integer is recorded.
@@ -51,10 +51,10 @@ No changes to `TaintAnalyzer.sln` membership. All edits are localized to existin
 tools/
   TaintAnalyzer/
     TaintWalker.cs             (modified — U2 same-method identity filter, U3 arithmetic ops)
-    TraceEmitter.cs            (modified — U1.a sink dedup, U1.c sanitizer-suppressed pruning)
+    TraceEmitter.cs            (modified — U1.a sink dedup; U1.c reverted)
   TaintAnalyzer.Tests/
     TaintWalkerTests.cs        (new tests added — U2 + U3)
-    TraceEmitterTests.cs       (new tests added — U1.a + U1.c)
+    TraceEmitterTests.cs       (new tests added — U1.a)
   TaintAnalyzer.Tests.Fixtures/
     Fixtures.cs                (new methods exercising U2/U3 IL shapes)
   ValidateFixture/
@@ -80,21 +80,18 @@ scripts/
 
 ### Component changes
 
-#### U1 — Sink-document dedup + sanitizer-suppressed-path pruning
+#### U1 — Sink-document dedup (U1.a only; U1.c de-scoped to milestone-E)
 
-Two complementary filters in `TraceEmitter.Emit`, applied to the per-sink loop that emits one document per sink hop:
+`TraceEmitter.Emit` gains one filter applied to the per-sink loop that emits one document per sink hop:
 
 **U1.a — `(sink.method, sink.line)` dedup.** Group sink hops by `(method, line)` before emitting documents. For each group, emit one document — the first sink hop in IL order. Trivially safe: if two sinks at the same `(method, line)` differ in their tainted operand or value chain, the trace's sink-hop content reflects whichever fired first; the alternative would be emitting near-identical documents that differ only in `tainted_value_in`. This filter alone bounds output by the count of distinct sink call sites in the analyzed assembly.
 
-**U1.c — sanitizer-suppressed-path pruning.** Suppress emitting a document when the path source-to-sink contains a sanitizer hop whose `establishes_bound.target` shares a token with the sink's transitive value chain. The chain-walking logic already exists in `TraceEmitter.BuildTransitiveValueChainTokens` (used for absence-suppression decisions); reuse it at document-emission time. A sanitizer that effectively bounds the chain means the sink is *not* unsanitized — the document carries no actionable signal.
-
-Combined effect: for #3074-prefix, three sinks across the BMP decoder (allocations of `imageHeader.ImageSize`, `colorMapSize`, `BmpInfoHeader.ProfileSize`) — at least one and probably two are at distinct `(method, line)` and not behind a same-chain sanitizer; the third may be suppressed by U1.c if a `Type==BM` check upstream is interpreted to bound the chain. Expected drop from 3 documents to 1-2. For #3079-prefix's 115 documents — most are in callees with no upstream sanitizer for their specific tainted local; U1.a bounds output by distinct `(method, line)` count (~30-40), and U1.c trims further wherever a sibling check happened to bound the same token. Strict-mode pass on #3079 is unlikely; that fixture remains the stretch goal.
+**U1.c (de-scoped).** A companion filter — "suppress emitting a document when the path source-to-sink contains a sanitizer that bounds the sink's transitive value chain" — was scoped here originally and reverted during execution. Reason: U1.c reuses the existing chain-walker (`BuildTransitiveValueChainTokens`), which fires on the same shape that defines a *post-fix fixture's* sanitized sink. Suppressing those documents semantically breaks the post-fix fixtures' purpose ("demonstrate analyzer recognizes the fix"). Meanwhile #3079 — the over-emission target U1.c was supposed to help — has mostly *sibling-guard* sanitizers (bounding `compressionFlag` while the sink uses `translatedKeywordLength`) that don't overlap the chain, so U1.c barely reduces noise there. Net-negative trade. Deferred to milestone-E for redesign that distinguishes "fixture-author-meaningful sanitizer bound" from "noisy sibling-guard". See revision history dated 2026-04-27 for the decision detail.
 
 Edge cases:
 - Multiple ground-truth documents pointing at the same `(method, line)`: not present in any current fixture; U1.a would collapse them in the analyzer output, and FX061 would fail on the missing doc. Acceptable for milestone-D — re-evaluate if such a fixture is authored.
-- Sanitizer-bound check hitting a token shared by an unrelated tainted local: the existing absence-suppression logic already accepts this risk and tunes via the chain-walker's iteration cap. U1.c inherits the same trade-off.
 
-**Why not analyzer-side (`TaintWalker`) instead of emitter-side.** The two filters are presentation decisions — the analyzer's in-memory hop list is still useful for FX064's hop counting (in fact, FX064 sees post-filter counts since it reads the emitted YAML). Putting the filters in the walker would make hop counts diverge between in-memory and emitted output, complicating debugging.
+**Why emitter-side, not analyzer-side (`TaintWalker`).** U1.a is a presentation decision — the analyzer's in-memory hop list is still useful for FX064's hop counting (in fact, FX064 sees post-filter counts since it reads the emitted YAML). Putting the filter in the walker would make hop counts diverge between in-memory and emitted output, complicating debugging.
 
 #### U2 — Identity-hop emission filter
 
@@ -208,10 +205,9 @@ If only the synthetic fixture passes strict and the ImageSharp ones don't, miles
 ## Decisions / Premises
 
 1. **Default-soft FX064.** Required-gate preservation depends on default-mode FX064 not changing exit codes. Without this, the milestone-D required gate would already fail on existing fixtures the moment U4 lands. The trade-off is that "FX064 in default mode" is a warning the user has to read; we accept that.
-2. **U1 lives in `TraceEmitter`, not `TaintWalker`.** The dedup and sanitizer-suppressed-path filters are presentation decisions over the in-memory hop list. Putting them in the walker would silently change `MethodSummary.Hops` content (which is cached via memoization, used by FX064 hop-counting indirectly, and useful for analyzer debugging). Emitter-side keeps the in-memory model intact.
+2. **U1 lives in `TraceEmitter`, not `TaintWalker`.** The dedup filter is a presentation decision over the in-memory hop list. Putting it in the walker would silently change `MethodSummary.Hops` content (which is cached via memoization, used by FX064 hop-counting indirectly, and useful for analyzer debugging). Emitter-side keeps the in-memory model intact.
 3. **U1.a takes the first sink at each `(method, line)`.** When two sink shapes happen to fire at the same line (rare; implies adjacent sink-shape calls on one source line), the first one wins. Safer than a "merge" strategy that would have to invent a synthesized hop.
-4. **U1.c reuses the existing chain-walker.** `BuildTransitiveValueChainTokens` already exists in `TraceEmitter` for absence-suppression. U1.c calls the same logic at document-emission time. No new chain-walker; no risk of divergence between absence-suppression and document-suppression behavior.
-5. **U2 simplified to "same method + identity"** (dropped same-line and value-name conditions). Re-reading actual #3074 traces showed the line-equality and rename-equality predicates would filter ~0 hops; the simpler predicate filters ~30-50% on the same traces. Trade-off: in-method renames are dropped, recoverable from adjacent non-identity hops.
+4. **U2 simplified to "same method + identity"** (dropped same-line and value-name conditions). Re-reading actual #3074 traces showed the line-equality and rename-equality predicates would filter ~0 hops; the simpler predicate filters ~30-50% on the same traces. Trade-off: in-method renames are dropped, recoverable from adjacent non-identity hops.
 6. **Once per expression for arithmetic, not once per IL op.** A `*` followed by `+` produces one hop, not two. Heuristic: emit when the result of the arithmetic chain is stored to a local or returned. Intermediate stack values don't emit. This matches how the existing Add/Or path already behaves.
 7. **No fixture-specific budget tuning.** FX064's two-formula choice is global. A fixture either passes strict or it doesn't; we don't carve out exceptions. The bonus integer is the honest signal.
 8. **#3079 strict-pass is not the success bar.** The 115-document blow-up needs aggressive cross-method dedup that's plausibly out of scope for milestone-D's reduction work. Hitting ≥ 3 of 4 strict-passes is achievable with synthetic + #3074-prefix + #3074-postfix; #3079 stays the stretch goal.
@@ -222,7 +218,7 @@ If only the synthetic fixture passes strict and the ImageSharp ones don't, miles
 
 1. Scaffold `--strict` flag + FX064 default-warning + tests. Land first; required-gate preservation built in from the start.
 2. U2 (same-method identity filter at `TaintWalker.cs:869`) + U3 (arithmetic ops + OperandName composition) in one chunk — both touch `TaintWalker`.
-3. U1.a + U1.c in `TraceEmitter.Emit` — sink dedup loop + reuse of chain-walker for document-suppression.
+3. U1.a in `TraceEmitter.Emit` — sink dedup loop. (U1.c was attempted, then reverted; deferred to milestone-E.)
 4. Build script + fixture scaffold for `synthetic-callee-arithmetic`. Source authored, build verified.
 5. Run analyzer against the new fixture; capture output as the ground-truth `trace.yaml`. Spot-check that the arithmetic propagator hop is present at the expected line.
 6. Final cross-check: required gate (clean build, full test suite, `--compare` non-strict on all 4 fixtures, fixture trace inspection). Bonus tally: count `--compare --strict` exit-0 fixtures.
@@ -232,7 +228,7 @@ If only the synthetic fixture passes strict and the ImageSharp ones don't, miles
 
 Walking the requirements:
 - *FX064 default-soft / strict-hard:* Section "U4 — FX064 budget diagnostic" + "Validator `--compare` semantics" + criterion #5 in required gate.
-- *Sink-document over-emission reduction:* Section "U1 — Sink-document dedup + sanitizer-suppressed-path pruning". Falsifiable via unit tests for `(method, line)` dedup and chain-walker reuse, and via strict-mode tally on #3074.
+- *Sink-document over-emission reduction:* Section "U1 — Sink-document dedup (U1.a only; U1.c de-scoped to milestone-E)". Falsifiable via unit tests for `(method, line)` dedup, and via strict-mode tally on the existing fixtures.
 - *Hop-list bloat reduction:* Section "U2 — Identity-hop emission filter". Falsifiable via unit tests + strict-mode tally on #3074.
 - *Arithmetic transform attribution:* Section "U3 — Arithmetic transform attribution". Falsifiable via the new fixture's ground-truth trace + criterion #4.
 - *No regression:* Required-gate item #3 (non-strict exits 0 on existing fixtures).
@@ -242,7 +238,6 @@ Walking the requirements:
 
 Open questions deferred to plan-writing:
 - Exact set of `OperandName` composition rules for chained operators (precedence handling). Plan-level detail.
-- Whether U1.c should reuse the chain-walker's existing iteration cap (`hops.Count`) or get a tighter bound for document-suppression. Plan-level detail.
 - Whether the synthetic fixture's source should be `net8.0` (matching ImageSharp fixtures) or `net10.0` (matching the analyzer). `net8.0` is more representative of real-world targets.
 
 ## Revision history
@@ -252,3 +247,4 @@ Open questions deferred to plan-writing:
   - **U1 reframed.** Original text described a "load-bearing-operand sink predicate" that the existing code (`SinkShapes.cs:21,45,78,109`) already implements. Actual root cause of the document explosion is callee-sink hops accumulating in the caller's flat hop list (`TaintWalker.cs:875-878`) plus per-sink document emission in `TraceEmitter`. Replaced with U1.a (`(method, line)` dedup) + U1.c (sanitizer-suppressed-path pruning) — both filters live in `TraceEmitter`, not `TaintWalker`. The `Decisions / Premises` section now records this rationale (premise 2 + premise 3 + premise 4).
   - **U2 simplified.** Original four-condition predicate (identity + name-unchanged + same-method + same-line) would have filtered ~zero hops on real traces — re-reading the #3074 trace showed in-method identity-hop chains span distinct lines. Simplified to "same method + identity"; preserves cross-method identity (call-boundary signal) but drops in-method renames. Premise 5 records the trade-off.
   - **#3079 strict-pass framed as out of scope.** The 115-document blow-up there is driven by cross-method dedup that's deliberately out of milestone-D's reduction scope. ≥ 3 of 4 strict-passes (the bonus criterion) is achievable from synthetic + #3074 pre/post; #3079 stays the stretch goal. Premise 8 records this.
+- **2026-04-27 (de-scope, same day).** U1.c (sanitizer-suppressed-path pruning) was implemented in Task 5, reviewed, and reverted. Reason: U1.c reuses the existing chain-walker (`BuildTransitiveValueChainTokens`), which fires on the same shape that defines a *post-fix fixture's* sanitized sink — suppressing those documents semantically breaks the post-fix fixtures' purpose. To keep `--compare` exit 0 the implementer changed the post-fix ground truth to point at a different sink (`ProfileSize`), which papered over the conflict rather than resolving it. Meanwhile #3079 — the over-emission target U1.c was supposed to help — has mostly *sibling-guard* sanitizers (bounding `compressionFlag` while the sink uses `translatedKeywordLength`) that don't overlap the chain, so U1.c barely reduces noise there. Reverted via `git revert c916ea5` → ac55e42; deferred to milestone-E for redesign that distinguishes "fixture-author-meaningful sanitizer bound" from "noisy sibling-guard". Plan Task 5 marked deferred. Bonus tier likely takes a hit on #3079.

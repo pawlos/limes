@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement four work units against the analyzer + validator. (1) FX064 over-emission budget with `--strict` flag in the validator; (2) same-method identity-hop filter in `TaintWalker`; (3) opcode-aware operand-name rendering for arithmetic hops; (4) sink-document `(method, line)` dedup + sanitizer-suppressed-path pruning in `TraceEmitter`. Plus a new committed fixture `fixtures/synthetic-callee-arithmetic/`.
+**Goal:** Implement four work units against the analyzer + validator. (1) FX064 over-emission budget with `--strict` flag in the validator; (2) same-method identity-hop filter in `TaintWalker`; (3) opcode-aware operand-name rendering for arithmetic hops; (4) sink-document `(method, line)` dedup in `TraceEmitter` (U1.a). U1.c (sanitizer-suppressed-path pruning) was scoped here originally, attempted in Task 5, reverted, and deferred to milestone-E — see Task 5 status. Plus a new committed fixture `fixtures/synthetic-callee-arithmetic/`.
 
-**Architecture:** All analyzer-side changes are localized: U2 in `TaintWalker.HandleCall` (around line 869), U3 in `TaintWalker.CombineProvenance`, U1.a + U1.c in `TraceEmitter.Emit`. Validator-side: U4 adds a new `Comparator` method called once per `--compare` invocation from `Program.RunCompare`, plus a `--strict` CLI flag. New fixture lives outside the solution as a standalone csproj built by a dedicated script.
+**Architecture:** All analyzer-side changes are localized: U2 in `TaintWalker.HandleCall` (around line 869), U3 in `TaintWalker.CombineProvenance`, U1.a in `TraceEmitter.Emit` (U1.c reverted). Validator-side: U4 adds a new `Comparator` method called once per `--compare` invocation from `Program.RunCompare`, plus a `--strict` CLI flag. New fixture lives outside the solution as a standalone csproj built by a dedicated script.
 
 **Tech Stack:** .NET 10 SDK (pinned `global.json`); Mono.Cecil 0.11.6 (already referenced); YamlDotNet 15.1.6; xUnit 2.9.3; Shouldly 4.3.0. New fixture targets net8.0 (matches ImageSharp fixtures).
 
@@ -20,7 +20,7 @@
   - `CombineProvenance` (line 1152) — accept opcode, render operator-aware combined name (U3).
   - Pass opcode from arithmetic emission site (line 469) to `CombineProvenance`.
 - `TraceEmitter.cs`
-  - `Emit` (line 26 onwards) — add `(method, line)` sink dedup before main loop (U1.a); call chain-walker before emitting each document and skip if sanitizer bounds chain (U1.c).
+  - `Emit` (line 26 onwards) — add `(method, line)` sink dedup before main loop (U1.a). U1.c was reverted; see Task 5.
 
 **Modified validator — `tools/ValidateFixture/`:**
 - `Comparator.cs` — add `CompareBudget(...)` method that returns FX064 diagnostics.
@@ -28,7 +28,7 @@
 
 **Modified tests — `tools/TaintAnalyzer.Tests/` and `tools/ValidateFixture.Tests/`:**
 - `TaintWalkerTests.cs` — add tests for U2 (same-method identity filter) and U3 (operator-aware operand names).
-- `TraceEmitterTests.cs` — add tests for U1.a (dedup) and U1.c (sanitizer-suppressed pruning).
+- `TraceEmitterTests.cs` — add tests for U1.a (dedup). U1.c tests reverted with Task 5.
 - `ComparatorTests.cs` — add tests for FX064 (default warning, strict failure, equality at ceiling).
 - `tools/TaintAnalyzer.Tests.Fixtures/Fixtures.cs` — new test methods exercising U2/U3 IL shapes.
 
@@ -51,7 +51,7 @@
 2. U2 — same-method identity hop filter in `TaintWalker.HandleCall`.
 3. U3 — operator-aware `CombineProvenance` for arithmetic hop value-out names.
 4. U1.a — sink-document dedup by `(method, line)` in `TraceEmitter.Emit`.
-5. U1.c — sanitizer-suppressed-path pruning in `TraceEmitter.Emit`.
+5. ~~U1.c — sanitizer-suppressed-path pruning in `TraceEmitter.Emit`~~ — **DEFERRED to milestone-E** (implemented, reviewed, reverted; see Task 5).
 6. Synthetic fixture scaffold — `Decoder.csproj` + source + build script.
 7. Synthetic fixture ground truth — capture analyzer output, write `trace.yaml`, verify arithmetic hop is present at `*` site.
 8. Required-gate cross-check — clean build, full test suite, `--compare` non-strict on all 4 fixtures.
@@ -731,120 +731,15 @@ git commit -m "analyzer: U1.a — sink-document (method, line) dedup (Task 4)"
 
 ---
 
-## Task 5: U1.c — sanitizer-suppressed-path pruning in `TraceEmitter.Emit`
+## Task 5: U1.c — sanitizer-suppressed-path pruning in `TraceEmitter.Emit` — **DEFERRED to milestone-E**
 
-**Files:**
-- Modify: `tools/TaintAnalyzer/TraceEmitter.cs` (`Emit` method — add suppression check before document creation)
-- Test: `tools/TaintAnalyzer.Tests/TraceEmitterTests.cs` (new pruning case)
+Status: implemented in commit c916ea5, reviewed, **reverted in commit ac55e42** (`git revert c916ea5`).
 
-- [ ] **Step 5.1: Write the failing test**
+Reason: U1.c reuses the existing chain-walker (`BuildTransitiveValueChainTokens`), which fires on the same shape that defines a *post-fix fixture's* sanitized sink. Suppressing those documents semantically breaks the post-fix fixtures' purpose ("demonstrate analyzer recognizes the fix"). To keep `--compare` exit 0 the implementer changed the post-fix ground truth to point at a different sink (`ProfileSize`), which papered over the conflict rather than resolving it. Meanwhile #3079 — the over-emission target U1.c was supposed to help — has mostly *sibling-guard* sanitizers (bounding `compressionFlag` while the sink uses `translatedKeywordLength`) that don't overlap the chain, so U1.c barely reduces noise there. Net-negative trade.
 
-Append to `tools/TaintAnalyzer.Tests/TraceEmitterTests.cs`:
+Deferred to milestone-E for redesign that distinguishes "fixture-author-meaningful sanitizer bound" from "noisy sibling-guard". See spec revision history dated 2026-04-27 (de-scope, same day) for detail.
 
-```csharp
-[Fact]
-public void Emit_SinkBehindSameChainSanitizer_SuppressesDocument()
-{
-    var rules = new RulesDocument { VulnId = "test-prune", SourceMethods = new() { "Ns.T::M(System.Int32)" } };
-    var sourceHop = new HopRecord
-    {
-        Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 10, Role = HopRole.Source,
-        TaintedValueIn = "stream", Transformation = "read_stream", TaintedValueOut = "stream",
-    };
-    // A sanitizer that bounds `mySize` (which is also the sink's value chain) should suppress the doc.
-    var propagator = new HopRecord
-    {
-        Hop = 1, Method = "Ns.T.M", File = "T.cs", Line = 12, Role = HopRole.Propagator,
-        TaintedValueIn = "stream", Transformation = "read_stream", TaintedValueOut = "mySize",
-    };
-    var sanitizer = new HopRecord
-    {
-        Hop = 2, Method = "Ns.T.M", File = "T.cs", Line = 14, Role = HopRole.Sanitizer,
-        TaintedValueIn = "mySize", Transformation = "identity", TaintedValueOut = "mySize",
-        EstablishesBound = new EstablishesBound { Target = "mySize", Relation = "<=", UpperBound = "1024" },
-        OnFailure = new OnFailure { Kind = FailureKind.Throw, Exception = "System.ArgumentOutOfRangeException" },
-    };
-    var sink = new HopRecord
-    {
-        Hop = 3, Method = "Ns.T.M", File = "T.cs", Line = 20, Role = HopRole.Sink,
-        TaintedValueIn = "mySize", Transformation = "identity", TaintedValueOut = "mySize",
-        SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "mySize",
-    };
-
-    var yaml = TraceEmitter.Emit(rules, new[] { sourceHop, propagator, sanitizer, sink }, Array.Empty<EmittedSanitizerAbsence>());
-
-    // U1.c suppresses the document because a sanitizer in the same method bounds `mySize` —
-    // which IS on the sink's transitive value chain.
-    yaml.ShouldBeEmpty();
-}
-```
-
-- [ ] **Step 5.2: Run the test to verify it fails**
-
-Run: `dotnet test tools/TaintAnalyzer.Tests/TaintAnalyzer.Tests.csproj --nologo --filter FullyQualifiedName~Emit_SinkBehindSameChainSanitizer_SuppressesDocument`
-Expected: FAIL — current emitter produces a document.
-
-- [ ] **Step 5.3: Add the suppression check inside the sink loop**
-
-In `tools/TaintAnalyzer/TraceEmitter.cs`, locate the sink-loop body (around line 51, `for (int s = 0; s < sinkIndices.Count; s++)`). After `pathHops` is built (around line 80) and BEFORE the absence-synthesis block (around line 102), insert the suppression check.
-
-Find the line just before:
-```csharp
-            // Per-sink absence: synthesize one entry only if no sanitizer hop appears on this
-```
-
-And insert above it:
-
-```csharp
-            // U1.c — sanitizer-suppressed-path pruning. A sanitizer that bounds the sink's
-            // transitive value chain means this sink is NOT unsanitized — skip emitting a
-            // document for it. Reuses BuildTransitiveValueChainTokens (originally written for
-            // absence-suppression) on the same chain seed, so the suppression decision is
-            // consistent with the absence-emission decision.
-            {
-                var sinkChainSeed = (sinkHop.SizeExpression ?? sinkHop.AccessExpression ?? sinkHop.TaintedValueIn ?? "")
-                    + " " + (sinkHop.FirstTaintedProvenance ?? "");
-                var docSuppressionChain = BuildTransitiveValueChainTokens(sinkChainSeed, pathHops, sinkHop.Method ?? "");
-                bool suppressed = pathHops.Any(h =>
-                    h.Role == HopRole.Sanitizer
-                    && h.Method == sinkHop.Method
-                    && SanitizerBoundMatchesSink(h, docSuppressionChain));
-                if (suppressed) continue;
-            }
-```
-
-- [ ] **Step 5.4: Run the suppression test to verify it passes**
-
-Run: `dotnet test tools/TaintAnalyzer.Tests/TaintAnalyzer.Tests.csproj --nologo --filter FullyQualifiedName~Emit_SinkBehindSameChainSanitizer_SuppressesDocument`
-Expected: PASS.
-
-- [ ] **Step 5.5: Run the full analyzer test suite to confirm no regressions**
-
-Run: `dotnet test tools/TaintAnalyzer.Tests/TaintAnalyzer.Tests.csproj --nologo`
-Expected: all tests pass — particularly the existing `Emit_PostFixWithSanitizer_*` tests (which exercise legitimate post-fix paths where suppression should fire).
-
-- [ ] **Step 5.6: Verify existing fixtures still `--compare` exit 0 (non-strict)**
-
-```bash
-for fix in 3074-prefix 3074-postfix 3079-prefix; do
-    dll=$(case $fix in
-        3074-prefix)  echo "artifacts/67bac23cff7c32743d0c8e166e9cccbf567837e0/artifacts/bin/src/ImageSharp/Debug/net8.0/SixLabors.ImageSharp.dll" ;;
-        3074-postfix) echo "artifacts/461c021608802370374afabd5d3c2720b3e46f04/artifacts/bin/src/ImageSharp/Debug/net8.0/SixLabors.ImageSharp.dll" ;;
-        3079-prefix)  echo "artifacts/533ed51d3acc313bfcdadf120de316fdada52a72/artifacts/bin/src/ImageSharp/Debug/net8.0/SixLabors.ImageSharp.dll" ;;
-    esac)
-    dotnet run --project tools/TaintAnalyzer -- "$dll" --rules fixtures/imagesharp-$fix/rules.yaml --output /tmp/an-$fix.yaml >/dev/null 2>&1
-    dotnet run --project tools/ValidateFixture -- --compare fixtures/imagesharp-$fix/trace.yaml /tmp/an-$fix.yaml >/dev/null
-    echo "$fix exit=$?"
-done
-```
-Expected: all three lines say `exit=0`. If any line says `exit=1`, U1.c is suppressing a doc that ground truth requires — investigate before proceeding (the suppression's chain-walker may be matching too aggressively).
-
-- [ ] **Step 5.7: Commit**
-
-```bash
-git add tools/TaintAnalyzer/TraceEmitter.cs tools/TaintAnalyzer.Tests/TraceEmitterTests.cs
-git commit -m "analyzer: U1.c — sanitizer-suppressed-path pruning (Task 5)"
-```
+Skip directly to Task 6.
 
 ---
 
@@ -1243,7 +1138,7 @@ At the end of the spec, append below the existing revision-history entries:
 
 ```markdown
 - **2026-04-27 (implementation complete).** All four units landed.
-  - **U1.a + U1.c (`TraceEmitter.Emit`).** Sink documents deduped by `(method, line)`; documents whose path contains a same-method same-chain sanitizer are pruned. Existing #3074-prefix dropped from 3 documents to <X>; #3079-prefix dropped from 115 to <Y>.
+  - **U1.a (`TraceEmitter.Emit`).** Sink documents deduped by `(method, line)`. Existing #3074-prefix dropped from 3 documents to <X>; #3079-prefix dropped from 115 to <Y>. (U1.c attempted then deferred to milestone-E — see Task 5.)
   - **U2 (`TaintWalker.HandleCall`).** Same-method identity hops at the call boundary suppressed. #3074-prefix's longest document hop count dropped from 113 to <Z>.
   - **U3 (`TaintWalker.CombineProvenance`).** Operator-aware operand-name rendering: arithmetic hop `tainted_value_out` reflects `*`/`/`/`<<` etc. instead of `+` for everything.
   - **U4 (`Comparator.CompareBudget`).** FX064 over-emission budget added; default mode emits a stderr warning, `--strict` promotes to failure.
@@ -1283,7 +1178,7 @@ Expected: every line says `OK:`.
 
 **Spec coverage:**
 - *FX064 default-soft / strict-hard:* Task 1 (validator-side scaffolding + tests) + Task 9 (final tally).
-- *Sink-document dedup + sanitizer-suppressed-path pruning:* Task 4 (U1.a) + Task 5 (U1.c).
+- *Sink-document dedup:* Task 4 (U1.a). U1.c (sanitizer-suppressed-path pruning) attempted in Task 5, reverted, deferred to milestone-E.
 - *Hop-list bloat reduction:* Task 2 (U2 same-method identity filter).
 - *Arithmetic transform attribution:* Task 3 (U3 operator-aware operand names — emission was already in place from milestone-C).
 - *No regression (required gate):* Task 8 (`--compare` non-strict on all 4 fixtures).
@@ -1295,7 +1190,7 @@ Expected: every line says `OK:`.
 **Type consistency:**
 - `Comparator.CompareBudget(...)` — defined in Task 1 Step 1.3, called in Task 1 Step 1.7 from `Program.RunCompare`.
 - `CombineProvenance` signature change — Task 3 Step 3.5 widens to take optional `OpCode? op = null`; only call site (Task 3 Step 3.6) passes `ins.OpCode`. Other call sites (`CombineProvenanceArgs` is a different method, line 884) untouched.
-- `BuildTransitiveValueChainTokens` and `SanitizerBoundMatchesSink` are reused in Task 5 from existing `TraceEmitter` private methods (lines 273-313); both already exist with the right signatures.
+- `BuildTransitiveValueChainTokens` and `SanitizerBoundMatchesSink` were reused in the reverted U1.c implementation (Task 5) from existing `TraceEmitter` private methods (lines 273-313); not used by remaining tasks.
 - Test helpers (`MakeDoc`, `TestFixtureContext.Open`, `FindMethod`) — Task 1 inlines `MakeDoc`; Tasks 2/3 use `TestFixtureContext.Open`/`FindMethod` patterns already established by existing TaintWalkerTests.
 
 ---
