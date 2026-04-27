@@ -466,7 +466,7 @@ public sealed class TaintWalker
                     var lhs = state.Stack.Pop();
                     if (lhs.Tainted || rhs.Tainted)
                     {
-                        var prov = CombineProvenance(lhs, rhs);
+                        var prov = CombineProvenance(lhs, rhs, ins.OpCode);
                         state.Stack.Push(StackSlot.TaintedWith(prov));
                         var valueIn = lhs.Tainted ? lhs.Provenance : rhs.Provenance;
                         EmitPropagatorHop(method, ins, "arithmetic", valueIn, prov, null, hops, ref hopCounter);
@@ -1158,9 +1158,25 @@ public sealed class TaintWalker
         for (int i = 0; i < pushes; i++) state.Stack.Push(StackSlot.Untainted);
     }
 
-    private static string CombineProvenance(StackSlot a, StackSlot b)
+    private static string CombineProvenance(StackSlot a, StackSlot b, OpCode? op = null)
     {
-        if (a.Tainted && b.Tainted) return $"{a.Provenance}+{b.Provenance}";
+        if (a.Tainted && b.Tainted)
+        {
+            var sep = op?.Code switch
+            {
+                Code.Mul or Code.Mul_Ovf or Code.Mul_Ovf_Un => "*",
+                Code.Div or Code.Div_Un => "/",
+                Code.Rem or Code.Rem_Un => "%",
+                Code.Shl => "<<",
+                Code.Shr or Code.Shr_Un => ">>",
+                Code.Sub or Code.Sub_Ovf or Code.Sub_Ovf_Un => "-",
+                Code.And => "&",
+                Code.Or => "|",
+                Code.Xor => "^",
+                _ => "+",
+            };
+            return $"{a.Provenance}{sep}{b.Provenance}";
+        }
         return a.Tainted ? a.Provenance : b.Provenance;
     }
 }

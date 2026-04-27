@@ -499,6 +499,27 @@ public class TaintWalkerTests
         summary.NewlyTaintedThisFields.ShouldContain("captured");
     }
 
+    [Theory]
+    [InlineData("MulPath", "*")]
+    [InlineData("DivPath", "/")]
+    [InlineData("ShlPath", "<<")]
+    [InlineData("ShrPath", ">>")]
+    public void Walk_ArithmeticHop_UsesOperatorAwareOperandName(string methodName, string expectedOp)
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+        var method = ctx.FindMethod(
+            $"TaintAnalyzer.Tests.Fixtures.ArithmeticOperatorFixtures::{methodName}(System.Int32,System.Int32)");
+        method.ShouldNotBeNull();
+
+        var summary = walker.Walk(method, taintedParamBitmask: 0b11);
+
+        summary.Hops.ShouldContain(h => h.Transformation == "arithmetic");
+        var matchingHop = summary.Hops.FirstOrDefault(
+            h => h.Transformation == "arithmetic" && h.TaintedValueOut.Contains(expectedOp));
+        matchingHop.ShouldNotBeNull($"No arithmetic hop with TaintedValueOut containing '{expectedOp}' found; hops: [{string.Join(", ", summary.Hops.Where(h => h.Transformation == "arithmetic").Select(h => h.TaintedValueOut))}]");
+    }
+
     [Fact]
     public void Walk_SameMethodIdentityHops_AreFiltered()
     {

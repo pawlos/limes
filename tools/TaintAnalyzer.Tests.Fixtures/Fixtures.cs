@@ -465,6 +465,15 @@ public static class IdentityFilterFixtures
     public static int ReadByte(byte[] s, int index) => s[index];
 }
 
+// Drives U3 (operator-aware operand-name rendering for arithmetic hops).
+public static class ArithmeticOperatorFixtures
+{
+    public static int MulPath(int a, int b) => a * b;
+    public static int DivPath(int a, int b) => a / b;
+    public static int ShlPath(int a, int b) => a << b;
+    public static int ShrPath(int a, int b) => a >> b;
+}
+
 // Mirrors parquet-dotnet ThriftCompactProtocolReader.ReadBinary → ReadBytesExactly
 // (issue #738: uncontrolled `new byte[]` from user-controlled varint length).
 public static class ParquetThriftLikeFixtures
