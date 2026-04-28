@@ -596,8 +596,11 @@ public class TaintWalkerTests
     [Fact]
     public void Walk_TaintedReceiverPropertyGetter_StripsGetUnderscorePrefix()
     {
-        // N2: the sink hop's tainted_value_in for `host.Value` (a property getter on a
-        // tainted receiver) should be "host.Value", not "host.get_Value".
+        // N2: the sink hop's tainted_value_in for `host.Value` (a property getter call)
+        // should render as "GetterNamingHost.Value", not "GetterNamingHost.get_Value".
+        // This fixture call is in-assembly, so it routes through the call-return composition
+        // at TaintWalker.cs:884 (Type.Property form, via CombineProvenanceArgs) rather than
+        // the external receiver-prefix branch at :833 (receiver.Property form).
         using var ctx = AssemblyContext.Load(FixturePath);
         var walker = new TaintWalker(ctx);
 
@@ -608,8 +611,6 @@ public class TaintWalkerTests
         summary.ReachedSink.ShouldBeTrue();
         var sinkHop = summary.Hops.Last();
         sinkHop.Role.ShouldBe(HopRole.Sink);
-        // The sink's tainted_value_in records the value flowing into newarr — i.e. the
-        // result of `host.Value`. After N2 it should not contain "get_".
         sinkHop.TaintedValueIn.ShouldBe("GetterNamingHost.Value", "N2 should render the getter call as Type.Property, not Type.get_Property");
     }
 
