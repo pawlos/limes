@@ -286,6 +286,28 @@ public sealed class TaintWalker
         return true;
     }
 
+    // N1 — predicate for whether a PDB-resolved local name is suitable for use as a slot's
+    // Provenance. Skip compiler-generated state-machine fields (`<…>` prefix), compiler-generated
+    // temporaries (`CS$…` prefix), and the `loc_N` debug-info fallback that matches the
+    // sanitizer-side noise we explicitly want out of trace fields.
+    private static bool IsMeaningfulLocalName(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return false;
+        if (name.StartsWith("<", StringComparison.Ordinal)) return false;
+        if (name.StartsWith("CS$", StringComparison.Ordinal)) return false;
+        // loc_<digits> shape — debug-info fallback emitted by some toolchains.
+        if (name.Length > 4 && name.StartsWith("loc_", StringComparison.Ordinal))
+        {
+            bool allDigits = true;
+            for (int i = 4; i < name.Length; i++)
+            {
+                if (!char.IsDigit(name[i])) { allDigits = false; break; }
+            }
+            if (allDigits) return false;
+        }
+        return true;
+    }
+
     // Stloc helper: store top-of-stack into local `idx`, and remember the first instruction
     // whose stloc to this local landed a tainted value. Per-local tracking is needed because
     // a single local can be assigned across multiple branches (linear walking visits all
@@ -304,13 +326,27 @@ public sealed class TaintWalker
             return;
         }
         var value = state.Stack.Pop();
-        state.Locals[idx] = value;
-        if (value.Tainted && !state.FirstLocalTaintLine.ContainsKey(idx))
+
+        // N1 — when storing a tainted value to a local with a meaningful PDB name, replace
+        // the slot's Provenance with the local name. Subsequent ldloc of this local pushes
+        // a slot carrying the local name, so downstream hops' tainted_value_* fields reflect
+        // what a triager reads in source instead of synthetic call-return / arithmetic strings.
+        var slotToStore = value;
+        if (value.Tainted
+            && method.Body?.Variables is { } vars && idx < vars.Count
+            && method.DebugInformation?.TryGetName(vars[idx], out var dn) == true
+            && IsMeaningfulLocalName(dn))
+        {
+            slotToStore = StackSlot.TaintedWith(dn);
+        }
+        state.Locals[idx] = slotToStore;
+
+        if (slotToStore.Tainted && !state.FirstLocalTaintLine.ContainsKey(idx))
         {
             var sp = _context.GetSequencePoint(method, ins);
             if (sp is not null)
             {
-                state.FirstLocalTaintLine[idx] = (sp.Document.Url, sp.StartLine, value.Provenance);
+                state.FirstLocalTaintLine[idx] = (sp.Document.Url, sp.StartLine, slotToStore.Provenance);
             }
         }
     }

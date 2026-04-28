@@ -557,4 +557,38 @@ public class TaintWalkerTests
         // hop survived in the merged hop list.
         summary.Hops.ShouldContain(h => h.Method.EndsWith(".ReadLength"));
     }
+
+    [Fact]
+    public void Walk_StlocOfTaintedCallReturn_RenamesProvenanceToLocalDebugName()
+    {
+        // N1: the arithmetic propagator hop after `int m = Echo(n); int p = m + 4;`
+        // should carry tainted_value_in = "m" (the local's PDB name), not the synthetic
+        // call-return provenance.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.CrossMethodHost::StlocReturnThenArithmetic(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        var arithmeticHop = summary.Hops.FirstOrDefault(h => h.Transformation == "arithmetic");
+        arithmeticHop.ShouldNotBeNull("expected an arithmetic propagator hop for `m + 4`");
+        arithmeticHop.TaintedValueIn.ShouldBe("m", "N1 should rename the tainted slot to the local's PDB name on stloc");
+    }
+
+    [Fact]
+    public void Walk_StlocOfUntaintedValue_DoesNotInventName()
+    {
+        // N1 should only rename when the slot is tainted. Untainted stloc must not produce
+        // a renamed slot (no tainted hops should emerge from this method at all).
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.WalkerFixtures::IntraMethodNoTaint()")!,
+            taintedParamBitmask: 0b0);
+
+        summary.ReachedSink.ShouldBeFalse("no tainted input → no sink");
+        summary.Hops.ShouldBeEmpty("no tainted input → no hops at all");
+    }
 }

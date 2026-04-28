@@ -265,6 +265,17 @@ public sealed class CrossMethodHost
     }
 
     private static int Echo(int x) => x;
+
+    // Exercises milestone-F N1: tainted call-return is stloc'd to local `m`, then `m + 4`
+    // produces an arithmetic propagator hop. Without N1, the arithmetic hop's
+    // `tainted_value_in` is the synthetic call-return provenance (e.g. "CrossMethodHost.Echo(n)").
+    // With N1, it should be the local name "m".
+    public byte[] StlocReturnThenArithmetic(int n)
+    {
+        int m = Echo(n);
+        int p = m + 4;
+        return new byte[p];
+    }
 }
 
 public sealed class FieldChainHost
