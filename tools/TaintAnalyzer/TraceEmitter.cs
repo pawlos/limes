@@ -59,15 +59,14 @@ public static class TraceEmitter
         //   2. AccessExpression (span sinks).
         //   3. TaintedValueIn (defensive fallback — every sink hop has this).
         var sinkIndices = new List<int>();
-        var seenSinkKeys = new HashSet<(string method, SinkKind? kind, SinkApi? api, string operand)>();
+        var seenSinkKeys = new HashSet<(string method, SinkKind kind, SinkApi api, string operand)>();
         foreach (int idx in rawSinkIndices)
         {
             var sh = hops[idx];
             var operand = sh.SizeExpression
                 ?? sh.AccessExpression
-                ?? sh.TaintedValueIn
-                ?? "";
-            var key = (sh.Method ?? "", sh.SinkKind, sh.SinkApi, operand);
+                ?? sh.TaintedValueIn;
+            var key = (sh.Method ?? "", sh.SinkKind!.Value, sh.SinkApi!.Value, operand);
             if (seenSinkKeys.Add(key))
             {
                 sinkIndices.Add(idx);

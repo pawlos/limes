@@ -481,7 +481,7 @@ public class TraceEmitterTests
             MakeSink(22),
         }, Array.Empty<EmittedSanitizerAbsence>());
 
-        var docCount = System.Text.RegularExpressions.Regex.Matches(yaml, @"^vuln_id:", System.Text.RegularExpressions.RegexOptions.Multiline).Count;
+        var docCount = yaml.Split("\n---\n").Length;
         docCount.ShouldBe(1, "U8 should collapse three same-operand same-shape sinks in the same method into one document");
     }
 
@@ -510,7 +510,7 @@ public class TraceEmitterTests
 
         var yaml = TraceEmitter.Emit(rules, new[] { sourceHop, sinkA, sinkB }, Array.Empty<EmittedSanitizerAbsence>());
 
-        var docCount = System.Text.RegularExpressions.Regex.Matches(yaml, @"^vuln_id:", System.Text.RegularExpressions.RegexOptions.Multiline).Count;
+        var docCount = yaml.Split("\n---\n").Length;
         docCount.ShouldBe(2, "different operand names → distinct keys → both emitted");
     }
 }
