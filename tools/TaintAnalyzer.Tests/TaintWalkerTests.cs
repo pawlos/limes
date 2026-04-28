@@ -592,4 +592,47 @@ public class TaintWalkerTests
         summary.ReachedSink.ShouldBeFalse("no tainted input → no sink");
         summary.Hops.ShouldBeEmpty("no tainted input → no hops");
     }
+
+    [Fact]
+    public void Walk_TaintedReceiverPropertyGetter_StripsGetUnderscorePrefix()
+    {
+        // N2: the sink hop's tainted_value_in for `host.Value` (a property getter on a
+        // tainted receiver) should be "host.Value", not "host.get_Value".
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.GetterNamingHost::AllocateFromTaintedHostValue(TaintAnalyzer.Tests.Fixtures.GetterNamingHost)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.ReachedSink.ShouldBeTrue();
+        var sinkHop = summary.Hops.Last();
+        sinkHop.Role.ShouldBe(HopRole.Sink);
+        // The sink's tainted_value_in records the value flowing into newarr — i.e. the
+        // result of `host.Value`. After N2 it should not contain "get_".
+        sinkHop.TaintedValueIn.ShouldNotBeNull();
+        sinkHop.TaintedValueIn!.ShouldNotContain("get_");
+    }
+
+    [Fact]
+    public void Walk_NonGetterCall_NoTraceFieldStartsWithUnderscore()
+    {
+        // Defensive: confirm CleanCalleeName doesn't accidentally chop something it shouldn't.
+        // CrossMethodTaintedReturn calls Echo (not a getter) — no `tainted_value_*` field across
+        // any hop should start with `_` (which would be the result of mistakenly stripping `get`
+        // from a name that wasn't actually `get_<X>`).
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.CrossMethodHost::CrossMethodTaintedReturn(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.ReachedSink.ShouldBeTrue();
+        foreach (var hop in summary.Hops)
+        {
+            (hop.TaintedValueIn ?? "").ShouldNotStartWith("_");
+            (hop.TaintedValueOut ?? "").ShouldNotStartWith("_");
+        }
+    }
 }

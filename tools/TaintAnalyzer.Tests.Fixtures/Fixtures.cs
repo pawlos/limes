@@ -514,3 +514,18 @@ public static class ParquetThriftLikeFixtures
         return new byte[count];   // ← the unbounded allocation sink
     }
 }
+
+// Milestone-F N2 fixtures — exercise property-getter naming.
+public sealed class GetterNamingHost
+{
+    private int _value;
+
+    public int Value => _value;
+
+    // Uses a property getter on a tainted receiver. Without N2, the call's synthetic
+    // provenance is "host.get_Value"; with N2, it should be "host.Value".
+    public static byte[] AllocateFromTaintedHostValue(GetterNamingHost host)
+    {
+        return new byte[host.Value];
+    }
+}

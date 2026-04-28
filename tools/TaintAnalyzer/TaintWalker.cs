@@ -286,6 +286,20 @@ public sealed class TaintWalker
         return true;
     }
 
+    // N2 — strip the `get_` property-getter prefix when composing call-return provenance,
+    // so synthetic strings render as "receiver.Property" instead of "receiver.get_Property".
+    // Conservative: matches only the common-case getter prefix; other accessor patterns
+    // (set_/add_/remove_/op_) don't compose into provenance the same way and are out of scope.
+    private static string CleanCalleeName(MethodReference callee)
+    {
+        var name = callee.Name;
+        if (name.StartsWith("get_", StringComparison.Ordinal) && name.Length > 4)
+        {
+            return name.Substring(4);
+        }
+        return name;
+    }
+
     // N1 — predicate for whether a PDB-resolved local name is suitable for use as a slot's
     // Provenance. Skip compiler-generated state-machine fields (`<…>` prefix), compiler-generated
     // temporaries (`CS$…` prefix), and the `loc_N` debug-info fallback that matches the
@@ -816,12 +830,12 @@ public sealed class TaintWalker
                     string prov;
                     if (hasThisOnStack && receiverSlot.Tainted)
                     {
-                        prov = $"{receiverSlot.Provenance}.{callee.Name}";
+                        prov = $"{receiverSlot.Provenance}.{CleanCalleeName(callee)}";
                     }
                     else
                     {
                         var firstTainted = argSlots.First(s => s.Tainted);
-                        prov = $"{callee.DeclaringType.Name}.{callee.Name}({firstTainted.Provenance})";
+                        prov = $"{callee.DeclaringType.Name}.{CleanCalleeName(callee)}({firstTainted.Provenance})";
                     }
                     state.Stack.Push(StackSlot.TaintedWith(prov));
                 }
@@ -867,7 +881,7 @@ public sealed class TaintWalker
         if (!IsVoidReturn(callee))
         {
             var provenance = callReturnIsTainted
-                ? CombineProvenanceArgs(argSlots, $"{callee.DeclaringType.Name}.{callee.Name}")
+                ? CombineProvenanceArgs(argSlots, $"{callee.DeclaringType.Name}.{CleanCalleeName(callee)}")
                 : "";
             state.Stack.Push(callReturnIsTainted ? StackSlot.TaintedWith(provenance) : StackSlot.Untainted);
         }
