@@ -1,0 +1,3 @@
+vuln_id: synthetic-stackalloc
+source_methods:
+  - SyntheticStackalloc.WireProcessor::Process(System.IO.Stream)
