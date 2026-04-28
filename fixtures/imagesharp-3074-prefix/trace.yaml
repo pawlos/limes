@@ -231,7 +231,7 @@ path:
   role: propagator
   tainted_value_in: infoHeader
   transformation: identity
-  tainted_value_out: BmpInfoHeader.get_ProfileData
+  tainted_value_out: BmpInfoHeader.ProfileData
   dispatch:
     kind: direct
     static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
@@ -475,7 +475,7 @@ path:
   role: propagator
   tainted_value_in: infoHeader
   transformation: identity
-  tainted_value_out: BmpInfoHeader.get_ProfileData
+  tainted_value_out: BmpInfoHeader.ProfileData
   dispatch:
     kind: direct
     static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
@@ -536,7 +536,7 @@ path:
   role: propagator
   tainted_value_in: infoHeader
   transformation: identity
-  tainted_value_out: BmpInfoHeader.get_Height
+  tainted_value_out: BmpInfoHeader.Height
   dispatch:
     kind: direct
     static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
@@ -896,7 +896,7 @@ path:
   role: propagator
   tainted_value_in: infoHeader
   transformation: identity
-  tainted_value_out: BmpInfoHeader.get_ProfileData
+  tainted_value_out: BmpInfoHeader.ProfileData
   dispatch:
     kind: direct
     static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
@@ -957,7 +957,7 @@ path:
   role: propagator
   tainted_value_in: infoHeader
   transformation: identity
-  tainted_value_out: BmpInfoHeader.get_Height
+  tainted_value_out: BmpInfoHeader.Height
   dispatch:
     kind: direct
     static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
