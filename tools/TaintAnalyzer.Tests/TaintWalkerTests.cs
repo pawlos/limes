@@ -634,4 +634,23 @@ public class TaintWalkerTests
             (hop.TaintedValueOut ?? "").ShouldNotStartWith("_");
         }
     }
+
+    [Fact]
+    public void Walk_CallBoundaryIdentityHop_StripsGetUnderscoreFromValueOut()
+    {
+        // N2 extension: the identity propagator hop emitted at the call boundary uses
+        // valueOut = "Type.Method"; getters must be stripped here too.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.GetterNamingHost::AllocateFromTaintedHostValue(TaintAnalyzer.Tests.Fixtures.GetterNamingHost)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.ReachedSink.ShouldBeTrue();
+        foreach (var hop in summary.Hops)
+        {
+            (hop.TaintedValueOut ?? "").ShouldNotContain("get_");
+        }
+    }
 }

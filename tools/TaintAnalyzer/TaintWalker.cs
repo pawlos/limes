@@ -900,12 +900,12 @@ public sealed class TaintWalker
             if (callReturnIsTainted && argSlots.Any(s => s.Tainted))
             {
                 valueIn = argSlots.First(s => s.Tainted).Provenance;
-                valueOut = $"{callee.DeclaringType.Name}.{callee.Name}";
+                valueOut = $"{callee.DeclaringType.Name}.{CleanCalleeName(callee)}";
             }
             else if (callReturnIsTainted && hasThisOnStack && receiverSlot.Tainted)
             {
                 valueIn = receiverSlot.Provenance;
-                valueOut = $"{callee.DeclaringType.Name}.{callee.Name}";
+                valueOut = $"{callee.DeclaringType.Name}.{CleanCalleeName(callee)}";
             }
             else if (calleeSummary.NewlyTaintedThisFields.Count > 0)
             {
