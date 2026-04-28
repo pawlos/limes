@@ -1,6 +1,6 @@
 # Milestone-F — Tainted-value naming pass (design)
 
-**Status:** Approved 2026-04-28.
+**Status:** Implementation complete 2026-04-28. Required gate met: 5/5 fixtures pass `--compare` non-strict; all `get_` prefixes stripped; tainted-value names resolve to PDB locals where meaningful. Bonus tier surprise: 4/5 strict-passes (up from milestone-E's 2/5) due to N2 extension tightening hop emission. See revision history for measured DoD evidence and milestone-G carry-overs.
 
 **One-liner:** Replace MethodReference-style synthetic names in `tainted_value_in` / `tainted_value_out` with PDB-resolved local names, and strip `get_` from property-getter call provenance, so analyzer-emitted traces are navigable by a human triager.
 
@@ -179,3 +179,30 @@ Every existing fixture's `trace.yaml` will need re-authoring because tainted_val
 ## Revision history
 
 - **2026-04-28 (approved).** Pivoted from arithmetic attribution after discovering all binary opcodes already emit propagator hops; the blind-test gap is investigation-shaped, not known-fix-shaped, and unsuitable for a "smaller steps" milestone. Settled on tainted-value naming sub-scope A2 (stloc-return + property-getter, both in `OperandName`/walker provenance composition); waived backlog DoD #1 (new regression fixture) on grounds the existing 5 concentrate the failure modes; deferred sub-problem (iii) `loc_N` recovery to milestone-G as a separate code site.
+- **2026-04-28 (implementation complete, same day).** N1 + N2 (with mid-execution N2 extension) landed.
+  - **Build/tests.** Clean build 0/0. Test suite green: 122 (TaintAnalyzer.Tests) + 61 (ValidateFixture.Tests) = **183** tests, 0 failures, 0 skips.
+  - **Required gate met:** `--compare` non-strict exits 0 on all five fixture pairs (`imagesharp-3074-prefix`, `imagesharp-3074-postfix`, `imagesharp-3079-prefix`, `synthetic-callee-arithmetic`, `synthetic-stackalloc`).
+  - **DoD evidence:**
+    - `\.get_[A-Z]` matches across all five fixture trace.yaml files: **0** (DoD #2 + DoD #3 satisfied).
+    - DoD #3 spot-checks: `fileHeader.Value.Type`, `fileHeader.Value.Offset` and `infoHeader.*` consistently render as `{receiver}.{Property}` in `imagesharp-3074-prefix/trace.yaml`.
+  - **Surviving synthetic shapes (expected):** `StreamExtensions.Read` survives at 6 sites in `imagesharp-3074-prefix` — these are call-site provenance for static helper invocations whose return value isn't `stloc`'d to a named local. Outside N1's heuristic boundary by design.
+  - **Bonus tier — better than expected: 4/5 strict-passes** (target was ≥2/5 best-effort; milestone-E baseline was 2/5). Per-fixture:
+    | Fixture | Strict |
+    |---|---|
+    | imagesharp-3074-prefix      | ✅ (was ❌ at milestone-E) |
+    | imagesharp-3074-postfix     | ✅ (was ❌ at milestone-E) |
+    | imagesharp-3079-prefix      | ❌ (16067 hops vs strict ceiling 25; structurally over) |
+    | synthetic-callee-arithmetic | ✅ |
+    | synthetic-stackalloc        | ✅ |
+  - **vs target:** N1+N2 was meant to be naming-only; the bonus improvement on 3074 was an unexpected side effect of the mid-execution N2 extension at the call-boundary identity hop's `valueOut` (commit `45b7422`). The hop string changes shifted the post-U9 collapsed hop counts below the strict ceiling. Honest signal: structural fixes for 3079 still required.
+  - **Plan defects observed during execution.**
+    - Task 2: plan's `ShouldNotContain("get_", "<message>")` doesn't compile in this Shouldly version (no string overload accepting custom message). Implementer dropped the message arg; semantics preserved.
+    - Task 4: code review caught a missed N2 site — call-boundary identity hop's `valueOut` composition at `TaintWalker.cs:903`/`:908` builds `Type.method` strings without `CleanCalleeName`. The spec listed three sites; this fourth was overlooked. Fixed mid-execution as the N2 extension (commit `45b7422`) plus a re-refresh of 3074 (commit `5fa8aad`).
+    - Task 5: plan said "copy analyzer output verbatim into the fixture". For `imagesharp-3079-prefix` (1 hand-authored ground-truth document, with subset-match tolerating analyzer over-emission), this is wrong — copying all 40 analyzer documents balloons the fixture from 107 lines to 163K and breaks `Comparator.FindMatchingDoc` semantics. Implementer's first attempt followed the plan literally; controller reverted (commit `dc63c24` reverts `4df377d`). Confirmed `--compare` exit=0 holds with the original 1-doc ground-truth (its hand-authored names already align with the post-N1+N2 analyzer output via FX062 subset-match).
+  - **Carry-overs to milestone-G:**
+    - **Sub-problem (iii) `loc_N` recovery in sanitizer hops** — `SanitizerShapes.OperandName` deferred from milestone-F's A2 sub-scope.
+    - **Arithmetic attribution / blind-test gap** — investigation-shaped; needs a Pmsg-like fixture authored, then trace inspection to identify why the multiply hop is missing or visually masked.
+    - **3079-prefix structural over-emission** — 16067 hops, 40 docs vs strict ceilings 25, 1. U9 tuning + sink filtering + U1.c sibling-guard redesign — likely a multi-milestone effort.
+    - **U1.c redesign** — meaningful sanitizer bound vs sibling guard.
+    - **parquet-dotnet round-trip** — fixture authored, materialize script + analyzer run pending.
+    - **Surviving `StreamExtensions.Read` patterns** — N1's stloc-only heuristic doesn't cover return values consumed inline. Could be addressed with a deeper provenance refactor (out of scope for milestone-G unless prioritized).
