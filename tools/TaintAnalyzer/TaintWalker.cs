@@ -292,7 +292,7 @@ public sealed class TaintWalker
     // sanitizer-side noise we explicitly want out of trace fields.
     private static bool IsMeaningfulLocalName(string? name)
     {
-        if (string.IsNullOrEmpty(name)) return false;
+        if (string.IsNullOrWhiteSpace(name)) return false;
         if (name.StartsWith("<", StringComparison.Ordinal)) return false;
         if (name.StartsWith("CS$", StringComparison.Ordinal)) return false;
         // loc_<digits> shape — debug-info fallback emitted by some toolchains.

@@ -579,16 +579,17 @@ public class TaintWalkerTests
     [Fact]
     public void Walk_StlocOfUntaintedValue_DoesNotInventName()
     {
-        // N1 should only rename when the slot is tainted. Untainted stloc must not produce
-        // a renamed slot (no tainted hops should emerge from this method at all).
+        // N1's rename branch must not fire when the slot is untainted. Drive the same fixture
+        // method as the positive test but with bitmask=0 so `n` is untainted; the stloc to `m`
+        // should preserve the untainted slot, no tainted hops should emerge.
         using var ctx = AssemblyContext.Load(FixturePath);
         var walker = new TaintWalker(ctx);
 
         var summary = walker.Walk(
-            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.WalkerFixtures::IntraMethodNoTaint()")!,
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.CrossMethodHost::StlocReturnThenArithmetic(System.Int32)")!,
             taintedParamBitmask: 0b0);
 
         summary.ReachedSink.ShouldBeFalse("no tainted input → no sink");
-        summary.Hops.ShouldBeEmpty("no tainted input → no hops at all");
+        summary.Hops.ShouldBeEmpty("no tainted input → no hops");
     }
 }
