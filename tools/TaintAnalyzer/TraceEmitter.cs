@@ -104,6 +104,9 @@ public static class TraceEmitter
                     pathHops.Add(hops[i]);
                 }
             }
+            // U9 — collapse adjacent redundant hops. Runs unconditionally (not gated on --strict)
+            // so the YAML the user reads matches what the validator counts.
+            pathHops = CollapseAdjacentRedundantHops(pathHops);
             var pathNodes = new List<PathNode>(pathHops.Count);
             for (int i = 0; i < pathHops.Count; i++)
             {
@@ -387,4 +390,56 @@ public static class TraceEmitter
         SinkApi.Stackalloc => "stackalloc",
         _ => null,
     };
+
+    // U9 — adjacent identical-tuple hop dedup. Runs after `pathHops` is built per document,
+    // collapsing redundant runs that the walker's emission generated. Two sub-rules in one pass:
+    //
+    //   Rule 1 (identity special case): `hop[i+1].transformation == "identity"` AND
+    //                                   `hop[i+1].method == hop[i].method` → drop hop[i+1].
+    //                                   Catches in-method identity chains spanning distinct lines
+    //                                   that milestone-D's U2 (call-boundary filter) misses.
+    //
+    //   Rule 2 (general tuple match): `(method, file, line, transformation, tainted_value_in)` of
+    //                                  hop[i+1] equals that of hop[i] → drop hop[i+1].
+    //                                  Catches non-identity adjacent repeats.
+    //
+    // Source/sink/sanitizer hops are never in pathHops (they're top-level in the doc), so we
+    // never collapse them. Sanitizer hops *can* be in pathHops — they're never dropped because
+    // their (transformation, method) tuple, while sometimes "identity" same-method, is gated
+    // by their distinct Role. We check Role explicitly to be safe.
+    private static List<HopRecord> CollapseAdjacentRedundantHops(IReadOnlyList<HopRecord> pathHops)
+    {
+        if (pathHops.Count < 2) return new List<HopRecord>(pathHops);
+
+        var result = new List<HopRecord>(pathHops.Count) { pathHops[0] };
+        for (int i = 1; i < pathHops.Count; i++)
+        {
+            var prev = result[^1];
+            var curr = pathHops[i];
+
+            // Never collapse sanitizer hops — they carry FX063 / FX023 audit signal.
+            if (curr.Role == HopRole.Sanitizer || prev.Role == HopRole.Sanitizer)
+            {
+                result.Add(curr);
+                continue;
+            }
+
+            // Rule 1 — identity special case.
+            bool rule1 = curr.Transformation == "identity" && curr.Method == prev.Method;
+
+            // Rule 2 — general tuple match.
+            bool rule2 = curr.Method == prev.Method
+                && curr.File == prev.File
+                && curr.Line == prev.Line
+                && curr.Transformation == prev.Transformation
+                && curr.TaintedValueIn == prev.TaintedValueIn;
+
+            if (rule1 || rule2)
+            {
+                continue; // drop curr
+            }
+            result.Add(curr);
+        }
+        return result;
+    }
 }

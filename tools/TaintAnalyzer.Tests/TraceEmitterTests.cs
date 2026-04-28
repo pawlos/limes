@@ -513,4 +513,115 @@ public class TraceEmitterTests
         var docCount = yaml.Split("\n---\n").Length;
         docCount.ShouldBe(2, "different operand names → distinct keys → both emitted");
     }
+
+    [Fact]
+    public void Emit_AdjacentSameMethodIdentityHops_AreCollapsed()
+    {
+        // Rule 1: hop[i+1].transformation == "identity" AND hop[i+1].method == hop[i].method
+        // Three adjacent identity hops in the same method at distinct lines should collapse to
+        // the first one — that's the in-method identity-chain pattern in #3074-prefix.
+        var rules = new RulesDocument { VulnId = "test-u9a", SourceMethods = new() { "Ns.T::M(System.Int32)" } };
+        var hops = new[]
+        {
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 5, Role = HopRole.Source,
+                TaintedValueIn = "stream", Transformation = "read_stream", TaintedValueOut = "stream" },
+            new HopRecord { Hop = 0, Method = "Ns.T.ReadHeader", File = "T.cs", Line = 100, Role = HopRole.Propagator,
+                TaintedValueIn = "stream", Transformation = "identity", TaintedValueOut = "headerA" },
+            new HopRecord { Hop = 0, Method = "Ns.T.ReadHeader", File = "T.cs", Line = 101, Role = HopRole.Propagator,
+                TaintedValueIn = "headerA", Transformation = "identity", TaintedValueOut = "headerB" },
+            new HopRecord { Hop = 0, Method = "Ns.T.ReadHeader", File = "T.cs", Line = 102, Role = HopRole.Propagator,
+                TaintedValueIn = "headerB", Transformation = "identity", TaintedValueOut = "headerC" },
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 20, Role = HopRole.Sink,
+                TaintedValueIn = "headerC", Transformation = "identity", TaintedValueOut = "headerC",
+                SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "headerC" },
+        };
+
+        var yaml = TraceEmitter.Emit(rules, hops, Array.Empty<EmittedSanitizerAbsence>());
+
+        // Three identity hops in the same method should collapse to one. So path[] has exactly 1.
+        var hopCount = System.Text.RegularExpressions.Regex.Matches(yaml, @"^- hop:", System.Text.RegularExpressions.RegexOptions.Multiline).Count;
+        hopCount.ShouldBe(1, "three adjacent same-method identity hops collapse to one");
+    }
+
+    [Fact]
+    public void Emit_CrossMethodIdentityHop_NotCollapsed()
+    {
+        // Rule 1's method-equality predicate must NOT collapse hops crossing method boundaries.
+        // Two identity hops with different methods stay distinct (preserves call-graph signal).
+        var rules = new RulesDocument { VulnId = "test-u9b", SourceMethods = new() { "Ns.T::M(System.Int32)" } };
+        var hops = new[]
+        {
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 5, Role = HopRole.Source,
+                TaintedValueIn = "stream", Transformation = "read_stream", TaintedValueOut = "stream" },
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 10, Role = HopRole.Propagator,
+                TaintedValueIn = "stream", Transformation = "identity", TaintedValueOut = "headerA" },
+            new HopRecord { Hop = 0, Method = "Ns.T.ReadHeader", File = "T.cs", Line = 100, Role = HopRole.Propagator,
+                TaintedValueIn = "headerA", Transformation = "identity", TaintedValueOut = "headerB" },
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 20, Role = HopRole.Sink,
+                TaintedValueIn = "headerB", Transformation = "identity", TaintedValueOut = "headerB",
+                SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "headerB" },
+        };
+
+        var yaml = TraceEmitter.Emit(rules, hops, Array.Empty<EmittedSanitizerAbsence>());
+
+        // Both propagator hops survive — they are in different methods.
+        var hopCount = System.Text.RegularExpressions.Regex.Matches(yaml, @"^- hop:", System.Text.RegularExpressions.RegexOptions.Multiline).Count;
+        hopCount.ShouldBe(2, "cross-method identity hop is preserved");
+    }
+
+    [Fact]
+    public void Emit_AdjacentNonIdentityHops_SameTuple_AreCollapsed()
+    {
+        // Rule 2: (method, file, line, transformation, tainted_value_in) tuple match.
+        // Two adjacent field_load hops with identical tuples collapse to one.
+        var rules = new RulesDocument { VulnId = "test-u9c", SourceMethods = new() { "Ns.T::M(System.Int32)" } };
+        var hops = new[]
+        {
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 5, Role = HopRole.Source,
+                TaintedValueIn = "stream", Transformation = "read_stream", TaintedValueOut = "stream" },
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 11, Role = HopRole.Propagator,
+                TaintedValueIn = "header", Transformation = "field_load", TaintedValueOut = "header.Offset" },
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 11, Role = HopRole.Propagator,
+                TaintedValueIn = "header", Transformation = "field_load", TaintedValueOut = "header.Offset" },
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 20, Role = HopRole.Sink,
+                TaintedValueIn = "header.Offset", Transformation = "identity", TaintedValueOut = "header.Offset",
+                SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "header.Offset" },
+        };
+
+        var yaml = TraceEmitter.Emit(rules, hops, Array.Empty<EmittedSanitizerAbsence>());
+
+        var hopCount = System.Text.RegularExpressions.Regex.Matches(yaml, @"^- hop:", System.Text.RegularExpressions.RegexOptions.Multiline).Count;
+        hopCount.ShouldBe(1, "adjacent identical-tuple non-identity hops collapse");
+    }
+
+    [Fact]
+    public void Emit_SanitizerHopBetweenIdentityHops_IsPreserved()
+    {
+        // U9 must not collapse sanitizer hops. A sanitizer between two identity hops stays.
+        var rules = new RulesDocument { VulnId = "test-u9d", SourceMethods = new() { "Ns.T::M(System.Int32)" } };
+        var hops = new[]
+        {
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 5, Role = HopRole.Source,
+                TaintedValueIn = "stream", Transformation = "read_stream", TaintedValueOut = "stream" },
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 10, Role = HopRole.Propagator,
+                TaintedValueIn = "stream", Transformation = "identity", TaintedValueOut = "x" },
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 12, Role = HopRole.Sanitizer,
+                TaintedValueIn = "x", Transformation = "identity", TaintedValueOut = "x",
+                EstablishesBound = new EstablishesBound { Target = "x", Relation = "<=", UpperBound = "1024" },
+                OnFailure = new OnFailure { Kind = FailureKind.Throw, Exception = "System.ArgumentOutOfRangeException" } },
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 15, Role = HopRole.Propagator,
+                TaintedValueIn = "x", Transformation = "identity", TaintedValueOut = "x" },
+            new HopRecord { Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 20, Role = HopRole.Sink,
+                TaintedValueIn = "x", Transformation = "identity", TaintedValueOut = "x",
+                SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "x" },
+        };
+
+        var yaml = TraceEmitter.Emit(rules, hops, Array.Empty<EmittedSanitizerAbsence>());
+
+        // Three path hops: identity → sanitizer → identity (distinct roles, sanitizer can't collapse).
+        // U9 may collapse the last identity hop with the first one only if they're adjacent in the
+        // path slice — they're not, the sanitizer is between them. So all three survive.
+        var hopCount = System.Text.RegularExpressions.Regex.Matches(yaml, @"^- hop:", System.Text.RegularExpressions.RegexOptions.Multiline).Count;
+        hopCount.ShouldBe(3, "sanitizer hop is preserved between adjacent identity hops");
+    }
 }
