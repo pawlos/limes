@@ -47,16 +47,28 @@ public static class TraceEmitter
             return "";
         }
 
-        // U1.a — dedup sinks by (method, line). When two sink hops fire at the same source
-        // location (rare; implies adjacent sink-shape calls on one line, or analyzer re-entry
-        // through a shared callee), the first wins. Avoids emitting near-identical documents.
+        // U8 — dedup sinks by (method, sink-shape, primary-operand-name). Extends milestone-D's
+        // U1.a (which used (method, line)) to collapse multiple sinks of the same shape with the
+        // same load-bearing operand within one method — even when they fire at distinct lines.
+        // Models the #3074 case: three `new byte[colorMapSizeBytes]` calls in
+        // BmpDecoderCore.ReadFileHeader at distinct lines all share key
+        // (BmpDecoderCore.ReadFileHeader, (allocation, new_array), colorMapSizeBytes).
+        //
+        // Primary-operand-name resolution order:
+        //   1. SizeExpression (allocation sinks).
+        //   2. AccessExpression (span sinks).
+        //   3. TaintedValueIn (defensive fallback — every sink hop has this).
         var sinkIndices = new List<int>();
-        var seenSinkLocations = new HashSet<(string method, int line)>();
+        var seenSinkKeys = new HashSet<(string method, SinkKind? kind, SinkApi? api, string operand)>();
         foreach (int idx in rawSinkIndices)
         {
             var sh = hops[idx];
-            var key = (sh.Method ?? "", sh.Line);
-            if (seenSinkLocations.Add(key))
+            var operand = sh.SizeExpression
+                ?? sh.AccessExpression
+                ?? sh.TaintedValueIn
+                ?? "";
+            var key = (sh.Method ?? "", sh.SinkKind, sh.SinkApi, operand);
+            if (seenSinkKeys.Add(key))
             {
                 sinkIndices.Add(idx);
             }

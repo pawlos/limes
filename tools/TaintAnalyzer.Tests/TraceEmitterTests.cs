@@ -412,10 +412,10 @@ public class TraceEmitterTests
         };
         var sink2 = new HopRecord
         {
-            // Same method + same line as sink1 — should be deduped.
+            // Same method + same line + same operand as sink1 — should be deduped under U8.
             Hop = 2, Method = "Ns.T.M", File = "T.cs", Line = 20, Role = HopRole.Sink,
-            TaintedValueIn = "alt", Transformation = "identity", TaintedValueOut = "alt",
-            SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "alt",
+            TaintedValueIn = "size", Transformation = "identity", TaintedValueOut = "size",
+            SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "size",
         };
 
         var yaml = TraceEmitter.Emit(rules, new[] { sourceHop, sink1, sink2 }, Array.Empty<EmittedSanitizerAbsence>());
@@ -482,5 +482,67 @@ public class TraceEmitterTests
         // Second doc: prop1 + sanitizer + prop2 between source and sink2 → sanitizer on path → no absence.
         docs[1].ShouldContain("line: 20");
         docs[1].ShouldMatch(@"sanitizer_absence:\s*\[\s*\]");
+    }
+
+    [Fact]
+    public void Emit_ThreeSinksSameMethodSameOperandDifferentLines_ProducesOneDocument()
+    {
+        // Models the imagesharp-3074-prefix shape: three `new byte[colorMapSizeBytes]` calls
+        // in BmpDecoderCore.ReadFileHeader at distinct lines. U1.a's (method, line) key would
+        // emit three documents; U8's (method, sink-shape, primary-operand-name) key collapses
+        // them to one because they share method + (allocation, new_array) + colorMapSizeBytes.
+        var rules = new RulesDocument { VulnId = "test-u8", SourceMethods = new() { "Ns.T::M(System.Int32)" } };
+        var sourceHop = new HopRecord
+        {
+            Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 10, Role = HopRole.Source,
+            TaintedValueIn = "stream", Transformation = "read_stream", TaintedValueOut = "stream",
+        };
+        HopRecord MakeSink(int line) => new HopRecord
+        {
+            Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = line, Role = HopRole.Sink,
+            TaintedValueIn = "colorMapSizeBytes", Transformation = "identity", TaintedValueOut = "colorMapSizeBytes",
+            SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray,
+            SizeExpression = "colorMapSizeBytes",
+        };
+
+        var yaml = TraceEmitter.Emit(rules, new[]
+        {
+            sourceHop,
+            MakeSink(20),
+            MakeSink(21),
+            MakeSink(22),
+        }, Array.Empty<EmittedSanitizerAbsence>());
+
+        var docCount = System.Text.RegularExpressions.Regex.Matches(yaml, @"^vuln_id:", System.Text.RegularExpressions.RegexOptions.Multiline).Count;
+        docCount.ShouldBe(1, "U8 should collapse three same-operand same-shape sinks in the same method into one document");
+    }
+
+    [Fact]
+    public void Emit_TwoSinksSameMethodDifferentOperands_ProducesTwoDocuments()
+    {
+        // Different operand names → distinct keys → both documents emitted.
+        var rules = new RulesDocument { VulnId = "test-u8b", SourceMethods = new() { "Ns.T::M(System.Int32)" } };
+        var sourceHop = new HopRecord
+        {
+            Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 10, Role = HopRole.Source,
+            TaintedValueIn = "stream", Transformation = "read_stream", TaintedValueOut = "stream",
+        };
+        var sinkA = new HopRecord
+        {
+            Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 20, Role = HopRole.Sink,
+            TaintedValueIn = "a", Transformation = "identity", TaintedValueOut = "a",
+            SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "a",
+        };
+        var sinkB = new HopRecord
+        {
+            Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 21, Role = HopRole.Sink,
+            TaintedValueIn = "b", Transformation = "identity", TaintedValueOut = "b",
+            SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "b",
+        };
+
+        var yaml = TraceEmitter.Emit(rules, new[] { sourceHop, sinkA, sinkB }, Array.Empty<EmittedSanitizerAbsence>());
+
+        var docCount = System.Text.RegularExpressions.Regex.Matches(yaml, @"^vuln_id:", System.Text.RegularExpressions.RegexOptions.Multiline).Count;
+        docCount.ShouldBe(2, "different operand names → distinct keys → both emitted");
     }
 }
