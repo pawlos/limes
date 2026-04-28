@@ -198,4 +198,35 @@ public class SinkShapesTests
 
         SinkShapes.MatchReadOnlySpanIndex(callItem, stack).ShouldBeNull();
     }
+
+    [Fact]
+    public void MatchLocalloc_TaintedSize_ReturnsMatch()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.SinkFixtures::StackallocBytes(System.Int32)");
+
+        var localloc = m.Body.Instructions.Single(i => i.OpCode == OpCodes.Localloc);
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.TaintedWith("size"));
+
+        var match = SinkShapes.MatchLocalloc(localloc, stack);
+
+        match.ShouldNotBeNull();
+        match!.Kind.ShouldBe(SinkKind.Allocation);
+        match.Api.ShouldBe(SinkApi.Stackalloc);
+        match.SizeProvenance.ShouldBe("size");
+    }
+
+    [Fact]
+    public void MatchLocalloc_UntaintedSize_ReturnsNull()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.SinkFixtures::StackallocBytes(System.Int32)");
+        var localloc = m.Body.Instructions.Single(i => i.OpCode == OpCodes.Localloc);
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);
+
+        SinkShapes.MatchLocalloc(localloc, stack).ShouldBeNull();
+    }
 }

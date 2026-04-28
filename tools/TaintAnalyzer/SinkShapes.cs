@@ -115,4 +115,23 @@ public static class SinkShapes
             SizeProvenance = indexSlot.Provenance,
         };
     }
+
+    public static SinkMatch? MatchLocalloc(Instruction instruction, SymbolicStack stack)
+    {
+        if (instruction.OpCode != OpCodes.Localloc) return null;
+        if (stack.Depth == 0) return null;
+
+        // Localloc pops one operand: the size in bytes (native int / int32 / uint32 — the JIT
+        // accepts any of these from the stack). The size at the top-of-stack is the only
+        // attacker-influenceable input. If tainted, this is a stack-allocation sink.
+        var sizeSlot = stack.Peek(0);
+        if (!sizeSlot.Tainted) return null;
+
+        return new SinkMatch
+        {
+            Kind = SinkKind.Allocation,
+            Api = SinkApi.Stackalloc,
+            SizeProvenance = sizeSlot.Provenance,
+        };
+    }
 }

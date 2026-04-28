@@ -373,6 +373,7 @@ public static class TraceEmitter
         SinkApi.ArrayPoolRent => "array_pool_rent",
         SinkApi.SpanSlice => "span_slice",
         SinkApi.SpanIndex => "span_index",
+        SinkApi.Stackalloc => "stackalloc",
         _ => null,
     };
 }

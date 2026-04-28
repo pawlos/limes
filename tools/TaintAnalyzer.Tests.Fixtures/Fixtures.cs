@@ -22,6 +22,14 @@ public static class SinkFixtures
     // ReadOnlySpan<T>.Slice shape. Wraps a byte[] to a ROS<byte>, then slices.
     public static ReadOnlySpan<byte> SliceSpan(ReadOnlySpan<byte> src, int start, int length)
         => src.Slice(start, length);
+    // Localloc shape: `Span<byte> buf = stackalloc byte[size];` — emits `localloc`.
+    // Returning `Length` (not the buffer) keeps the buffer's lifetime confined to this method,
+    // which is what real callers do; the IL shape is what the analyzer cares about.
+    public static int StackallocBytes(int size)
+    {
+        Span<byte> buf = stackalloc byte[size];
+        return buf.Length;
+    }
 }
 
 // Throw-helpers — various shapes the predicate must classify.
