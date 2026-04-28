@@ -518,9 +518,7 @@ public static class ParquetThriftLikeFixtures
 // Milestone-F N2 fixtures — exercise property-getter naming.
 public sealed class GetterNamingHost
 {
-    private int _value;
-
-    public int Value => _value;
+    public int Value => 0;
 
     // Uses a property getter on a tainted receiver. Without N2, the call's synthetic
     // provenance is "host.get_Value"; with N2, it should be "host.Value".

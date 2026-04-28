@@ -610,8 +610,7 @@ public class TaintWalkerTests
         sinkHop.Role.ShouldBe(HopRole.Sink);
         // The sink's tainted_value_in records the value flowing into newarr — i.e. the
         // result of `host.Value`. After N2 it should not contain "get_".
-        sinkHop.TaintedValueIn.ShouldNotBeNull();
-        sinkHop.TaintedValueIn!.ShouldNotContain("get_");
+        sinkHop.TaintedValueIn.ShouldBe("GetterNamingHost.Value", "N2 should render the getter call as Type.Property, not Type.get_Property");
     }
 
     [Fact]
