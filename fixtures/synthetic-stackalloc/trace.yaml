@@ -1,0 +1,56 @@
+vuln_id: synthetic-stackalloc
+fix_commit: ""
+fix_pr: ""
+description: >
+  Synthetic regression fixture for milestone-E stackalloc sink kind.
+  WireProcessor.Process reads a u16 from a stream and uses it as the size
+  argument to stackalloc byte[recordCount]. The product is a stack buffer
+  whose size is fully attacker-controlled — the stack-overflow analogue of
+  new byte[N]. The sink hop has kind: allocation, api: stackalloc.
+
+source:
+  method: SyntheticStackalloc.WireProcessor.Process
+  file: Decoder.cs
+  line: 8
+  role: source
+  tainted_value_in: stream
+  transformation: read_stream
+  tainted_value_out: stream
+  kind: decoder_entry
+sink:
+  method: SyntheticStackalloc.WireProcessor.Process
+  file: Decoder.cs
+  line: 11
+  role: sink
+  tainted_value_in: WireReader.ReadU16
+  transformation: identity
+  tainted_value_out: WireReader.ReadU16
+  kind: allocation
+  api: stackalloc
+  size_expression: WireReader.ReadU16
+path:
+- hop: 0
+  method: SyntheticStackalloc.WireProcessor.Process
+  file: Decoder.cs
+  line: 10
+  role: propagator
+  tainted_value_in: new WireReader(stream)
+  transformation: identity
+  tainted_value_out: WireReader.ReadU16
+  dispatch:
+    kind: virtual
+    static_type: SyntheticStackalloc.WireReader
+    resolved_targets: []
+    closure_boundary: false
+- hop: 1
+  method: SyntheticStackalloc.WireProcessor.Process
+  file: Decoder.cs
+  line: 11
+  role: propagator
+  tainted_value_in: WireReader.ReadU16
+  transformation: cast
+  tainted_value_out: WireReader.ReadU16
+sanitizer_absence:
+- location: Decoder.cs:11
+  expected_check: WireReader.ReadU16 must be bounded before reaching stackalloc at Decoder.cs:11
+  tainted_value: WireReader.ReadU16
