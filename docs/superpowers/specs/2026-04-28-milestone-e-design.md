@@ -1,6 +1,6 @@
 # Milestone E — strict-mode bonus recovery + stackalloc sink kind
 
-**Status:** Approved 2026-04-28.
+**Status:** Implementation complete 2026-04-28. Required gate met (5/5 fixtures pass `--compare` non-strict). Bonus tier: 2/5 strict-passes. See revision history for the per-fixture tally and milestone-F carry-overs.
 **Predecessors:**
 - Milestone D (`2026-04-27-milestone-d-design.md`) — FX064 budget + emission noise reduction; closed at 1/4 strict-passes (synthetic only) against a ≥3/4 target.
 - Milestone-D backlog (`docs/superpowers/plans/2026-04-26-milestone-d-backlog.md`) — six entries; this milestone takes three of them (cross-method sink dedup, strict-mode hop dedup, stackalloc sink kind).
@@ -247,3 +247,24 @@ Open questions deferred to plan-writing:
 ## Revision history
 
 - **2026-04-28** — Initial spec; approved pending plan authoring.
+- **2026-04-28 (implementation complete, same day).** All three work units landed.
+  - **Build/tests.** Clean build 0/0 across the solution. Full test suite green: 117 (TaintAnalyzer.Tests) + 61 (ValidateFixture.Tests) = **178** tests, 0 failures, 0 skips.
+  - **Required gate met:** `--compare` non-strict exits 0 on all five fixture pairs (`imagesharp-3074-prefix`, `imagesharp-3074-postfix`, `imagesharp-3079-prefix`, `synthetic-callee-arithmetic`, `synthetic-stackalloc`).
+  - **Bonus gate result:** **2/5** strict-passes. Per-fixture detail (D_a vs strict ceiling, H_a vs strict ceiling):
+    | Fixture | D_a / D_g_strict | H_a / H_g_strict | Strict |
+    |---|---|---|---|
+    | imagesharp-3074-prefix  | 3  / ≤1  | 95    / ≤10 | ❌ |
+    | imagesharp-3074-postfix | 3  / ≤1  | 99    / ≤12 | ❌ |
+    | imagesharp-3079-prefix  | 40 / ≤1  | 15965 / ≤6  | ❌ |
+    | synthetic-callee-arithmetic | 1 / ≤1 | 2 / ≤4 | ✅ |
+    | synthetic-stackalloc    | 1  / ≤1  | 2     / ≤4  | ✅ |
+  - **vs target:** spec target was ≥4/5. Underdelivered by 2 points; the gap is on `imagesharp-3074-prefix`, `imagesharp-3074-postfix`, and `imagesharp-3079-prefix`, all of which still over-emit on both axes — U8 left `D_a=3` (3074 pre/post) and `D_a=40` (3079) above the strict ceiling of 1, and U9's hop reduction landed at H_a=95/99/15965 against strict ceilings of ≤10/≤12/≤6.
+  - **Trace-quality wins (qualitative).** U7 closes the stackalloc sink-vocabulary gap (synthetic-stackalloc demonstrates `api: stackalloc` at the localloc site). U8 + U9 collapse #3074's three-document over-emission and in-method identity bloat — even where the strict ceiling isn't hit, the trace is materially shorter and more readable.
+  - **Carry-overs to milestone-F backlog:**
+    - "U9 tuning — refine adjacent-tuple predicate to land H_a within strict ceiling on imagesharp-3074-prefix, imagesharp-3074-postfix, and imagesharp-3079-prefix."
+    - The original milestone-D carry-overs (tainted-value naming, parquet-dotnet round-trip, U1.c redesign) all remain pending.
+  - **Plan defects observed during execution.**
+    - Task 5: plan expected `size_expression: recordCount` but analyzer emits `WireReader.ReadU16` (SSA last-write name vs C# debug local name). Trace.yaml took the analyzer output verbatim per spec; not a behavior bug.
+    - Task 5: plan expected 1 propagator hop on synthetic-stackalloc; analyzer emitted 2 (still within strict ceiling H_a ≤ 2·H_g, so strict still passes).
+    - Task 3: plan predicted #3074 fixtures might need trace.yaml reconciliation after U9; in fact none was needed (U9's collapse fit within existing tolerance budgets without ground-truth changes).
+    - Task 2 + Task 3: code reviewer flagged that the `Regex.Matches(yaml, @"^- hop:", Multiline).Count` idiom in U9 tests has the same brittleness concern as Task 2's earlier `^vuln_id:` regex; could be consolidated via a shared `CountPathHops(string)` test helper. Deferred (minor).
