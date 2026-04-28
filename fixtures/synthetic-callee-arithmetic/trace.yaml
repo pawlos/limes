@@ -19,7 +19,6 @@ source:
   transformation: read_stream
   tainted_value_out: stream
   kind: decoder_entry
-
 sink:
   method: SyntheticCalleeArithmetic.WireDecoder.Decode
   file: Decoder.cs
@@ -31,14 +30,13 @@ sink:
   kind: allocation
   api: new_array
   size_expression: totalBytes
-
 path:
 - hop: 0
   method: SyntheticCalleeArithmetic.WireDecoder.Decode
   file: Decoder.cs
   line: 10
   role: propagator
-  tainted_value_in: new WireReader(stream)
+  tainted_value_in: reader
   transformation: identity
   tainted_value_out: WireReader.ReadU16
   dispatch:
@@ -46,7 +44,6 @@ path:
     static_type: SyntheticCalleeArithmetic.WireReader
     resolved_targets: []
     closure_boundary: false
-
 - hop: 1
   method: SyntheticCalleeArithmetic.PayloadSizer.RecordsAreaBytes
   file: Decoder.cs
@@ -55,8 +52,7 @@ path:
   tainted_value_in: count
   transformation: arithmetic
   tainted_value_out: count*stride
-
 sanitizer_absence:
 - location: Decoder.cs:12
-  expected_check: totalBytes (via WireReader.ReadU16) must be bounded before reaching new_array at Decoder.cs:13
-  tainted_value: totalBytes (via WireReader.ReadU16)
+  expected_check: totalBytes must be bounded before reaching new_array at Decoder.cs:13
+  tainted_value: totalBytes

@@ -22,19 +22,19 @@ sink:
   file: Decoder.cs
   line: 11
   role: sink
-  tainted_value_in: WireReader.ReadU16
+  tainted_value_in: recordCount
   transformation: identity
-  tainted_value_out: WireReader.ReadU16
+  tainted_value_out: recordCount
   kind: allocation
   api: stackalloc
-  size_expression: WireReader.ReadU16
+  size_expression: recordCount
 path:
 - hop: 0
   method: SyntheticStackalloc.WireProcessor.Process
   file: Decoder.cs
   line: 10
   role: propagator
-  tainted_value_in: new WireReader(stream)
+  tainted_value_in: reader
   transformation: identity
   tainted_value_out: WireReader.ReadU16
   dispatch:
@@ -47,10 +47,10 @@ path:
   file: Decoder.cs
   line: 11
   role: propagator
-  tainted_value_in: WireReader.ReadU16
+  tainted_value_in: recordCount
   transformation: cast
-  tainted_value_out: WireReader.ReadU16
+  tainted_value_out: recordCount
 sanitizer_absence:
 - location: Decoder.cs:11
-  expected_check: WireReader.ReadU16 must be bounded before reaching stackalloc at Decoder.cs:11
-  tainted_value: WireReader.ReadU16
+  expected_check: recordCount must be bounded before reaching stackalloc at Decoder.cs:11
+  tainted_value: recordCount
