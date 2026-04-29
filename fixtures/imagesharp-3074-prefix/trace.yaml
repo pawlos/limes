@@ -9,250 +9,6 @@ source:
   tainted_value_out: stream
   kind: decoder_entry
 sink:
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1436
-  role: sink
-  tainted_value_in: BmpInfoHeader.ProfileSize
-  transformation: identity
-  tainted_value_out: BmpInfoHeader.ProfileSize
-  kind: allocation
-  api: new_array
-  size_expression: BmpInfoHeader.ProfileSize
-path:
-- hop: 0
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.Decode
-  file: BmpDecoderCore.cs
-  line: 133
-  role: propagator
-  tainted_value_in: stream
-  transformation: identity
-  tainted_value_out: BmpDecoderCore.ReadImageHeaders
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-- hop: 1
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1523
-  role: propagator
-  tainted_value_in: this
-  transformation: identity
-  tainted_value_out: this
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-- hop: 2
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadFileHeader
-  file: BmpDecoderCore.cs
-  line: 1480
-  role: propagator
-  tainted_value_in: stream
-  transformation: identity
-  tainted_value_out: StreamExtensions.Read
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.StreamExtensions
-    resolved_targets: []
-    closure_boundary: false
-- hop: 3
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadFileHeader
-  file: BmpDecoderCore.cs
-  line: 1483
-  role: sanitizer
-  tainted_value_in: loc_3
-  transformation: identity
-  tainted_value_out: loc_3
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-  establishes_bound:
-    target: loc_3
-    relation: ==
-    upper_bound: 19778
-  on_failure:
-    kind: throw
-    exception: NotSupportedException
-- hop: 4
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadFileHeader
-  file: BmpDecoderCore.cs
-  line: 1496
-  role: sanitizer
-  tainted_value_in: fileHeader.Value.Type
-  transformation: identity
-  tainted_value_out: fileHeader.Value.Type
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-  establishes_bound:
-    target: fileHeader.Value.Type
-    relation: ==
-    upper_bound: 19778
-  on_failure:
-    kind: throw
-    exception: NotSupportedException
-- hop: 5
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1526
-  role: propagator
-  tainted_value_in: this
-  transformation: identity
-  tainted_value_out: this
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-- hop: 6
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1351
-  role: propagator
-  tainted_value_in: stream
-  transformation: identity
-  tainted_value_out: StreamExtensions.Read
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.StreamExtensions
-    resolved_targets: []
-    closure_boundary: false
-- hop: 7
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1360
-  role: propagator
-  tainted_value_in: headerSize
-  transformation: arithmetic
-  tainted_value_out: headerSize
-- hop: 8
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.ParseOs2Version2
-  file: BmpInfoHeader.cs
-  line: 384
-  role: propagator
-  tainted_value_in: this
-  transformation: identity
-  tainted_value_out: this
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
-    resolved_targets: []
-    closure_boundary: false
-- hop: 9
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader..ctor
-  file: BmpInfoHeader.cs
-  line: 102
-  role: propagator
-  tainted_value_in: this
-  transformation: identity
-  tainted_value_out: this
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
-    resolved_targets: []
-    closure_boundary: false
-- hop: 10
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.ParseOs2Version2
-  file: BmpInfoHeader.cs
-  line: 413
-  role: propagator
-  tainted_value_in: this
-  transformation: identity
-  tainted_value_out: this
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
-    resolved_targets: []
-    closure_boundary: false
-- hop: 11
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1425
-  role: propagator
-  tainted_value_in: Span`1.op_Implicit(Span`1.op_Implicit)
-  transformation: identity
-  tainted_value_out: BmpInfoHeader.ParseV4
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
-    resolved_targets: []
-    closure_boundary: false
-- hop: 12
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1427
-  role: sanitizer
-  tainted_value_in: headerSize
-  transformation: identity
-  tainted_value_out: headerSize
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-  establishes_bound:
-    target: headerSize
-    relation: '>'
-    lower_bound: 108
-  on_failure:
-    kind: throw
-    exception: NotSupportedException
-- hop: 13
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.ParseV5
-  file: BmpInfoHeader.cs
-  line: 468
-  role: sanitizer
-  tainted_value_in: data.Length
-  transformation: identity
-  tainted_value_out: data.Length
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
-    resolved_targets: []
-    closure_boundary: false
-  establishes_bound:
-    target: data.Length
-    relation: '>='
-    lower_bound: 124
-  on_failure:
-    kind: throw
-- hop: 14
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1432
-  role: propagator
-  tainted_value_in: infoHeader
-  transformation: identity
-  tainted_value_out: BmpInfoHeader.ProfileData
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
-    resolved_targets: []
-    closure_boundary: false
-sanitizer_absence:
-- location: BmpDecoderCore.cs:1360
-  expected_check: BmpInfoHeader.ProfileSize (via headerSize) must be bounded before reaching new_array at BmpDecoderCore.cs:1436
-  tainted_value: BmpInfoHeader.ProfileSize (via headerSize)
----
-vuln_id: imagesharp-3074
-source:
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.Decode
-  file: BmpDecoderCore.cs
-  line: 129
-  role: source
-  tainted_value_in: stream
-  transformation: read_stream
-  tainted_value_out: stream
-  kind: decoder_entry
-sink:
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
   file: BmpDecoderCore.cs
   line: 1600
@@ -324,6 +80,14 @@ path:
     kind: throw
     exception: NotSupportedException
 - hop: 4
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpFileHeader.get_Type
+  file: BmpFileHeader.cs
+  line: 40
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <Type>k__BackingField
+- hop: 5
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadFileHeader
   file: BmpDecoderCore.cs
   line: 1496
@@ -343,7 +107,7 @@ path:
   on_failure:
     kind: throw
     exception: NotSupportedException
-- hop: 5
+- hop: 6
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
   file: BmpDecoderCore.cs
   line: 1526
@@ -356,7 +120,7 @@ path:
     static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
     resolved_targets: []
     closure_boundary: false
-- hop: 6
+- hop: 7
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
   file: BmpDecoderCore.cs
   line: 1351
@@ -369,7 +133,7 @@ path:
     static_type: SixLabors.ImageSharp.StreamExtensions
     resolved_targets: []
     closure_boundary: false
-- hop: 7
+- hop: 8
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
   file: BmpDecoderCore.cs
   line: 1360
@@ -377,7 +141,7 @@ path:
   tainted_value_in: headerSize
   transformation: arithmetic
   tainted_value_out: headerSize
-- hop: 8
+- hop: 9
   method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.ParseOs2Version2
   file: BmpInfoHeader.cs
   line: 384
@@ -390,7 +154,7 @@ path:
     static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
     resolved_targets: []
     closure_boundary: false
-- hop: 9
+- hop: 10
   method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader..ctor
   file: BmpInfoHeader.cs
   line: 102
@@ -403,7 +167,7 @@ path:
     static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
     resolved_targets: []
     closure_boundary: false
-- hop: 10
+- hop: 11
   method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.ParseOs2Version2
   file: BmpInfoHeader.cs
   line: 413
@@ -416,7 +180,7 @@ path:
     static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
     resolved_targets: []
     closure_boundary: false
-- hop: 11
+- hop: 12
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
   file: BmpDecoderCore.cs
   line: 1425
@@ -429,7 +193,7 @@ path:
     static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
     resolved_targets: []
     closure_boundary: false
-- hop: 12
+- hop: 13
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
   file: BmpDecoderCore.cs
   line: 1427
@@ -449,7 +213,7 @@ path:
   on_failure:
     kind: throw
     exception: NotSupportedException
-- hop: 13
+- hop: 14
   method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.ParseV5
   file: BmpInfoHeader.cs
   line: 468
@@ -468,7 +232,7 @@ path:
     lower_bound: 124
   on_failure:
     kind: throw
-- hop: 14
+- hop: 15
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
   file: BmpDecoderCore.cs
   line: 1432
@@ -481,7 +245,49 @@ path:
     static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
     resolved_targets: []
     closure_boundary: false
-- hop: 15
+- hop: 16
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.get_ProfileData
+  file: BmpInfoHeader.cs
+  line: 291
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <ProfileData>k__BackingField
+- hop: 17
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
+  file: BmpDecoderCore.cs
+  line: 1432
+  role: propagator
+  tainted_value_in: infoHeader
+  transformation: identity
+  tainted_value_out: BmpInfoHeader.ProfileSize
+  dispatch:
+    kind: direct
+    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
+    resolved_targets: []
+    closure_boundary: false
+- hop: 18
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.get_ProfileSize
+  file: BmpInfoHeader.cs
+  line: 296
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <ProfileSize>k__BackingField
+- hop: 19
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
+  file: BmpDecoderCore.cs
+  line: 1436
+  role: propagator
+  tainted_value_in: infoHeader
+  transformation: identity
+  tainted_value_out: BmpInfoHeader.ProfileSize
+  dispatch:
+    kind: direct
+    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
+    resolved_targets: []
+    closure_boundary: false
+- hop: 20
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
   file: BmpDecoderCore.cs
   line: 1437
@@ -489,7 +295,7 @@ path:
   tainted_value_in: BmpInfoHeader.ProfileData
   transformation: cast
   tainted_value_out: BmpInfoHeader.ProfileData
-- hop: 16
+- hop: 21
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
   file: BmpDecoderCore.cs
   line: 1437
@@ -497,7 +303,49 @@ path:
   tainted_value_in: infoHeaderStart
   transformation: arithmetic
   tainted_value_out: infoHeaderStart+BmpInfoHeader.ProfileData
-- hop: 17
+- hop: 22
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.get_XPelsPerMeter
+  file: BmpInfoHeader.cs
+  line: 178
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <XPelsPerMeter>k__BackingField
+- hop: 23
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
+  file: BmpDecoderCore.cs
+  line: 1448
+  role: propagator
+  tainted_value_in: infoHeader
+  transformation: identity
+  tainted_value_out: BmpInfoHeader.YPelsPerMeter
+  dispatch:
+    kind: direct
+    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
+    resolved_targets: []
+    closure_boundary: false
+- hop: 24
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.get_YPelsPerMeter
+  file: BmpInfoHeader.cs
+  line: 184
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <YPelsPerMeter>k__BackingField
+- hop: 25
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
+  file: BmpDecoderCore.cs
+  line: 1450
+  role: propagator
+  tainted_value_in: infoHeader
+  transformation: identity
+  tainted_value_out: BmpInfoHeader.XPelsPerMeter
+  dispatch:
+    kind: direct
+    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
+    resolved_targets: []
+    closure_boundary: false
+- hop: 26
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
   file: BmpDecoderCore.cs
   line: 1450
@@ -505,7 +353,7 @@ path:
   tainted_value_in: BmpInfoHeader.XPelsPerMeter
   transformation: cast
   tainted_value_out: BmpInfoHeader.XPelsPerMeter
-- hop: 18
+- hop: 27
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
   file: BmpDecoderCore.cs
   line: 1451
@@ -513,7 +361,15 @@ path:
   tainted_value_in: BmpInfoHeader.YPelsPerMeter
   transformation: cast
   tainted_value_out: BmpInfoHeader.YPelsPerMeter
-- hop: 19
+- hop: 28
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.get_Height
+  file: BmpInfoHeader.cs
+  line: 149
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <Height>k__BackingField
+- hop: 29
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
   file: BmpDecoderCore.cs
   line: 1462
@@ -521,7 +377,15 @@ path:
   tainted_value_in: BmpInfoHeader.Height
   transformation: arithmetic
   tainted_value_out: BmpInfoHeader.Height
-- hop: 20
+- hop: 30
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.get_BitsPerPixel
+  file: BmpInfoHeader.cs
+  line: 160
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <BitsPerPixel>k__BackingField
+- hop: 31
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
   file: BmpDecoderCore.cs
   line: 1468
@@ -529,7 +393,28 @@ path:
   tainted_value_in: bitsPerPixel
   transformation: cast
   tainted_value_out: bitsPerPixel
-- hop: 21
+- hop: 32
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.get_Width
+  file: BmpInfoHeader.cs
+  line: 144
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <Width>k__BackingField
+- hop: 33
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
+  file: BmpDecoderCore.cs
+  line: 1470
+  role: propagator
+  tainted_value_in: infoHeader
+  transformation: identity
+  tainted_value_out: BmpInfoHeader.Height
+  dispatch:
+    kind: direct
+    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
+    resolved_targets: []
+    closure_boundary: false
+- hop: 34
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
   file: BmpDecoderCore.cs
   line: 1534
@@ -542,7 +427,28 @@ path:
     static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
     resolved_targets: []
     closure_boundary: false
-- hop: 22
+- hop: 35
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.get_Height
+  file: BmpInfoHeader.cs
+  line: 149
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <Height>k__BackingField
+- hop: 36
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
+  file: BmpDecoderCore.cs
+  line: 1537
+  role: propagator
+  tainted_value_in: infoHeader
+  transformation: identity
+  tainted_value_out: BmpInfoHeader.Height
+  dispatch:
+    kind: direct
+    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
+    resolved_targets: []
+    closure_boundary: false
+- hop: 37
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
   file: BmpDecoderCore.cs
   line: 1537
@@ -550,7 +456,36 @@ path:
   tainted_value_in: BmpInfoHeader.Height
   transformation: cast
   tainted_value_out: BmpInfoHeader.Height
-- hop: 23
+- hop: 38
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.get_ClrUsed
+  file: BmpInfoHeader.cs
+  line: 190
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <ClrUsed>k__BackingField
+- hop: 39
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
+  file: BmpDecoderCore.cs
+  line: 1544
+  role: propagator
+  tainted_value_in: infoHeader
+  transformation: identity
+  tainted_value_out: BmpInfoHeader.BitsPerPixel
+  dispatch:
+    kind: direct
+    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
+    resolved_targets: []
+    closure_boundary: false
+- hop: 40
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.get_BitsPerPixel
+  file: BmpInfoHeader.cs
+  line: 160
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <BitsPerPixel>k__BackingField
+- hop: 41
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
   file: BmpDecoderCore.cs
   line: 1544
@@ -558,7 +493,15 @@ path:
   tainted_value_in: BmpInfoHeader.BitsPerPixel
   transformation: arithmetic
   tainted_value_out: BmpInfoHeader.BitsPerPixel
-- hop: 24
+- hop: 42
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpFileHeader.get_Offset
+  file: BmpFileHeader.cs
+  line: 57
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <Offset>k__BackingField
+- hop: 43
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
   file: BmpDecoderCore.cs
   line: 1551
@@ -566,7 +509,23 @@ path:
   tainted_value_in: BmpFileHeader.Offset
   transformation: arithmetic
   tainted_value_out: BmpFileHeader.Offset
-- hop: 25
+- hop: 44
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.get_HeaderSize
+  file: BmpInfoHeader.cs
+  line: 139
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <HeaderSize>k__BackingField
+- hop: 45
+  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
+  file: BmpDecoderCore.cs
+  line: 1551
+  role: propagator
+  tainted_value_in: BmpFileHeader.Offset
+  transformation: arithmetic
+  tainted_value_out: BmpFileHeader.Offset-BmpInfoHeader.HeaderSize
+- hop: 46
   method: SixLabors.ImageSharp.ColorNumerics.GetColorCountForBitDepth
   file: ColorNumerics.cs
   line: 164
@@ -574,7 +533,7 @@ path:
   tainted_value_in: bitDepth
   transformation: arithmetic
   tainted_value_out: bitDepth
-- hop: 26
+- hop: 47
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
   file: BmpDecoderCore.cs
   line: 1561
@@ -582,15 +541,7 @@ path:
   tainted_value_in: colorMapSizeBytes
   transformation: arithmetic
   tainted_value_out: colorMapSizeBytes
-- hop: 27
-  method: SixLabors.ImageSharp.ColorNumerics.GetColorCountForBitDepth
-  file: ColorNumerics.cs
-  line: 164
-  role: propagator
-  tainted_value_in: bitDepth
-  transformation: arithmetic
-  tainted_value_out: bitDepth
-- hop: 28
+- hop: 48
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
   file: BmpDecoderCore.cs
   line: 1565
@@ -598,15 +549,7 @@ path:
   tainted_value_in: colorMapSizeBytes
   transformation: arithmetic
   tainted_value_out: colorMapSizeBytes/colorCountForBitDepth
-- hop: 29
-  method: SixLabors.ImageSharp.ColorNumerics.GetColorCountForBitDepth
-  file: ColorNumerics.cs
-  line: 164
-  role: propagator
-  tainted_value_in: bitDepth
-  transformation: arithmetic
-  tainted_value_out: bitDepth
-- hop: 30
+- hop: 49
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
   file: BmpDecoderCore.cs
   line: 1578
@@ -614,7 +557,7 @@ path:
   tainted_value_in: BmpInfoHeader.BitsPerPixel
   transformation: arithmetic
   tainted_value_out: BmpInfoHeader.BitsPerPixel
-- hop: 31
+- hop: 50
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
   file: BmpDecoderCore.cs
   line: 1585
@@ -622,7 +565,7 @@ path:
   tainted_value_in: BmpInfoHeader.ClrUsed
   transformation: arithmetic
   tainted_value_out: BmpInfoHeader.ClrUsed
-- hop: 32
+- hop: 51
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
   file: BmpDecoderCore.cs
   line: 1594
@@ -630,7 +573,7 @@ path:
   tainted_value_in: BmpFileHeader.Offset
   transformation: arithmetic
   tainted_value_out: BmpFileHeader.Offset-colorMapSizeBytes
-- hop: 33
+- hop: 52
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
   file: BmpDecoderCore.cs
   line: 1594
@@ -638,7 +581,7 @@ path:
   tainted_value_in: BmpFileHeader.Offset-colorMapSizeBytes
   transformation: cast
   tainted_value_out: BmpFileHeader.Offset-colorMapSizeBytes
-- hop: 34
+- hop: 53
   method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
   file: BmpDecoderCore.cs
   line: 1594
@@ -662,547 +605,3 @@ sanitizer_absence:
 - location: BmpDecoderCore.cs:1551
   expected_check: colorMapSizeBytes must be bounded before reaching new_array at BmpDecoderCore.cs:1600
   tainted_value: colorMapSizeBytes
----
-vuln_id: imagesharp-3074
-source:
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.Decode
-  file: BmpDecoderCore.cs
-  line: 129
-  role: source
-  tainted_value_in: stream
-  transformation: read_stream
-  tainted_value_out: stream
-  kind: decoder_entry
-sink:
-  method: SixLabors.ImageSharp.StreamExtensions.Skip
-  file: StreamExtensions.cs
-  line: 52
-  role: sink
-  tainted_value_in: count
-  transformation: identity
-  tainted_value_out: count
-  kind: allocation
-  api: array_pool_rent
-  size_expression: count
-path:
-- hop: 0
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.Decode
-  file: BmpDecoderCore.cs
-  line: 133
-  role: propagator
-  tainted_value_in: stream
-  transformation: identity
-  tainted_value_out: BmpDecoderCore.ReadImageHeaders
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-- hop: 1
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1523
-  role: propagator
-  tainted_value_in: this
-  transformation: identity
-  tainted_value_out: this
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-- hop: 2
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadFileHeader
-  file: BmpDecoderCore.cs
-  line: 1480
-  role: propagator
-  tainted_value_in: stream
-  transformation: identity
-  tainted_value_out: StreamExtensions.Read
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.StreamExtensions
-    resolved_targets: []
-    closure_boundary: false
-- hop: 3
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadFileHeader
-  file: BmpDecoderCore.cs
-  line: 1483
-  role: sanitizer
-  tainted_value_in: loc_3
-  transformation: identity
-  tainted_value_out: loc_3
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-  establishes_bound:
-    target: loc_3
-    relation: ==
-    upper_bound: 19778
-  on_failure:
-    kind: throw
-    exception: NotSupportedException
-- hop: 4
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadFileHeader
-  file: BmpDecoderCore.cs
-  line: 1496
-  role: sanitizer
-  tainted_value_in: fileHeader.Value.Type
-  transformation: identity
-  tainted_value_out: fileHeader.Value.Type
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-  establishes_bound:
-    target: fileHeader.Value.Type
-    relation: ==
-    upper_bound: 19778
-  on_failure:
-    kind: throw
-    exception: NotSupportedException
-- hop: 5
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1526
-  role: propagator
-  tainted_value_in: this
-  transformation: identity
-  tainted_value_out: this
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-- hop: 6
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1351
-  role: propagator
-  tainted_value_in: stream
-  transformation: identity
-  tainted_value_out: StreamExtensions.Read
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.StreamExtensions
-    resolved_targets: []
-    closure_boundary: false
-- hop: 7
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1360
-  role: propagator
-  tainted_value_in: headerSize
-  transformation: arithmetic
-  tainted_value_out: headerSize
-- hop: 8
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.ParseOs2Version2
-  file: BmpInfoHeader.cs
-  line: 384
-  role: propagator
-  tainted_value_in: this
-  transformation: identity
-  tainted_value_out: this
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
-    resolved_targets: []
-    closure_boundary: false
-- hop: 9
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader..ctor
-  file: BmpInfoHeader.cs
-  line: 102
-  role: propagator
-  tainted_value_in: this
-  transformation: identity
-  tainted_value_out: this
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
-    resolved_targets: []
-    closure_boundary: false
-- hop: 10
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.ParseOs2Version2
-  file: BmpInfoHeader.cs
-  line: 413
-  role: propagator
-  tainted_value_in: this
-  transformation: identity
-  tainted_value_out: this
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
-    resolved_targets: []
-    closure_boundary: false
-- hop: 11
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1425
-  role: propagator
-  tainted_value_in: Span`1.op_Implicit(Span`1.op_Implicit)
-  transformation: identity
-  tainted_value_out: BmpInfoHeader.ParseV4
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
-    resolved_targets: []
-    closure_boundary: false
-- hop: 12
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1427
-  role: sanitizer
-  tainted_value_in: headerSize
-  transformation: identity
-  tainted_value_out: headerSize
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-  establishes_bound:
-    target: headerSize
-    relation: '>'
-    lower_bound: 108
-  on_failure:
-    kind: throw
-    exception: NotSupportedException
-- hop: 13
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader.ParseV5
-  file: BmpInfoHeader.cs
-  line: 468
-  role: sanitizer
-  tainted_value_in: data.Length
-  transformation: identity
-  tainted_value_out: data.Length
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
-    resolved_targets: []
-    closure_boundary: false
-  establishes_bound:
-    target: data.Length
-    relation: '>='
-    lower_bound: 124
-  on_failure:
-    kind: throw
-- hop: 14
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1432
-  role: propagator
-  tainted_value_in: infoHeader
-  transformation: identity
-  tainted_value_out: BmpInfoHeader.ProfileData
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
-    resolved_targets: []
-    closure_boundary: false
-- hop: 15
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1437
-  role: propagator
-  tainted_value_in: BmpInfoHeader.ProfileData
-  transformation: cast
-  tainted_value_out: BmpInfoHeader.ProfileData
-- hop: 16
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1437
-  role: propagator
-  tainted_value_in: infoHeaderStart
-  transformation: arithmetic
-  tainted_value_out: infoHeaderStart+BmpInfoHeader.ProfileData
-- hop: 17
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1450
-  role: propagator
-  tainted_value_in: BmpInfoHeader.XPelsPerMeter
-  transformation: cast
-  tainted_value_out: BmpInfoHeader.XPelsPerMeter
-- hop: 18
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1451
-  role: propagator
-  tainted_value_in: BmpInfoHeader.YPelsPerMeter
-  transformation: cast
-  tainted_value_out: BmpInfoHeader.YPelsPerMeter
-- hop: 19
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1462
-  role: propagator
-  tainted_value_in: BmpInfoHeader.Height
-  transformation: arithmetic
-  tainted_value_out: BmpInfoHeader.Height
-- hop: 20
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadInfoHeader
-  file: BmpDecoderCore.cs
-  line: 1468
-  role: propagator
-  tainted_value_in: bitsPerPixel
-  transformation: cast
-  tainted_value_out: bitsPerPixel
-- hop: 21
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1534
-  role: propagator
-  tainted_value_in: infoHeader
-  transformation: identity
-  tainted_value_out: BmpInfoHeader.Height
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpInfoHeader
-    resolved_targets: []
-    closure_boundary: false
-- hop: 22
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1537
-  role: propagator
-  tainted_value_in: BmpInfoHeader.Height
-  transformation: cast
-  tainted_value_out: BmpInfoHeader.Height
-- hop: 23
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1544
-  role: propagator
-  tainted_value_in: BmpInfoHeader.BitsPerPixel
-  transformation: arithmetic
-  tainted_value_out: BmpInfoHeader.BitsPerPixel
-- hop: 24
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1551
-  role: propagator
-  tainted_value_in: BmpFileHeader.Offset
-  transformation: arithmetic
-  tainted_value_out: BmpFileHeader.Offset
-- hop: 25
-  method: SixLabors.ImageSharp.ColorNumerics.GetColorCountForBitDepth
-  file: ColorNumerics.cs
-  line: 164
-  role: propagator
-  tainted_value_in: bitDepth
-  transformation: arithmetic
-  tainted_value_out: bitDepth
-- hop: 26
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1561
-  role: propagator
-  tainted_value_in: colorMapSizeBytes
-  transformation: arithmetic
-  tainted_value_out: colorMapSizeBytes
-- hop: 27
-  method: SixLabors.ImageSharp.ColorNumerics.GetColorCountForBitDepth
-  file: ColorNumerics.cs
-  line: 164
-  role: propagator
-  tainted_value_in: bitDepth
-  transformation: arithmetic
-  tainted_value_out: bitDepth
-- hop: 28
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1565
-  role: propagator
-  tainted_value_in: colorMapSizeBytes
-  transformation: arithmetic
-  tainted_value_out: colorMapSizeBytes/colorCountForBitDepth
-- hop: 29
-  method: SixLabors.ImageSharp.ColorNumerics.GetColorCountForBitDepth
-  file: ColorNumerics.cs
-  line: 164
-  role: propagator
-  tainted_value_in: bitDepth
-  transformation: arithmetic
-  tainted_value_out: bitDepth
-- hop: 30
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1578
-  role: propagator
-  tainted_value_in: BmpInfoHeader.BitsPerPixel
-  transformation: arithmetic
-  tainted_value_out: BmpInfoHeader.BitsPerPixel
-- hop: 31
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1585
-  role: propagator
-  tainted_value_in: BmpInfoHeader.ClrUsed
-  transformation: arithmetic
-  tainted_value_out: BmpInfoHeader.ClrUsed
-- hop: 32
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1594
-  role: propagator
-  tainted_value_in: BmpFileHeader.Offset
-  transformation: arithmetic
-  tainted_value_out: BmpFileHeader.Offset-colorMapSizeBytes
-- hop: 33
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1594
-  role: propagator
-  tainted_value_in: BmpFileHeader.Offset-colorMapSizeBytes
-  transformation: cast
-  tainted_value_out: BmpFileHeader.Offset-colorMapSizeBytes
-- hop: 34
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1594
-  role: sanitizer
-  tainted_value_in: stream.Position
-  transformation: identity
-  tainted_value_out: stream.Position
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-  establishes_bound:
-    target: stream.Position
-    relation: <=
-    upper_bound: fileHeader.Value.Offset - colorMapSizeBytes
-  on_failure:
-    kind: throw
-    exception: InvalidImageContentException
-- hop: 35
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1602
-  role: sanitizer
-  tainted_value_in: Read
-  transformation: identity
-  tainted_value_out: Read
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-  establishes_bound:
-    target: Read
-    relation: '!='
-    upper_bound: 0
-  on_failure:
-    kind: throw
-    exception: InvalidImageContentException
-- hop: 36
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1619
-  role: propagator
-  tainted_value_in: stream.Position
-  transformation: cast
-  tainted_value_out: stream.Position
-- hop: 37
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1619
-  role: propagator
-  tainted_value_in: BmpFileHeader.Offset
-  transformation: arithmetic
-  tainted_value_out: BmpFileHeader.Offset-stream.Position
-- hop: 38
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1622
-  role: propagator
-  tainted_value_in: stream.Position
-  transformation: cast
-  tainted_value_out: stream.Position
-- hop: 39
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1622
-  role: propagator
-  tainted_value_in: skipAmount
-  transformation: arithmetic
-  tainted_value_out: skipAmount+stream.Position
-- hop: 40
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1622
-  role: propagator
-  tainted_value_in: skipAmount+stream.Position
-  transformation: cast
-  tainted_value_out: skipAmount+stream.Position
-- hop: 41
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1622
-  role: sanitizer
-  tainted_value_in: skipAmount + stream.Position
-  transformation: identity
-  tainted_value_out: skipAmount + stream.Position
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-  establishes_bound:
-    target: skipAmount + stream.Position
-    relation: <=
-    upper_bound: stream.Length
-  on_failure:
-    kind: throw
-    exception: InvalidImageContentException
-- hop: 42
-  method: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore.ReadImageHeaders
-  file: BmpDecoderCore.cs
-  line: 1627
-  role: sanitizer
-  tainted_value_in: skipAmount
-  transformation: identity
-  tainted_value_out: skipAmount
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.Formats.Bmp.BmpDecoderCore
-    resolved_targets: []
-    closure_boundary: false
-  establishes_bound:
-    target: skipAmount
-    relation: <=
-    upper_bound: 0
-  on_failure:
-    kind: return_early
-- hop: 43
-  method: SixLabors.ImageSharp.StreamExtensions.Skip
-  file: StreamExtensions.cs
-  line: 41
-  role: sanitizer
-  tainted_value_in: count
-  transformation: identity
-  tainted_value_out: count
-  dispatch:
-    kind: direct
-    static_type: SixLabors.ImageSharp.StreamExtensions
-    resolved_targets: []
-    closure_boundary: false
-  establishes_bound:
-    target: count
-    relation: '>='
-    lower_bound: 1
-  on_failure:
-    kind: return_early
-- hop: 44
-  method: SixLabors.ImageSharp.StreamExtensions.Skip
-  file: StreamExtensions.cs
-  line: 48
-  role: propagator
-  tainted_value_in: count
-  transformation: cast
-  tainted_value_out: count
-sanitizer_absence: []
