@@ -1,0 +1,126 @@
+vuln_id: synthetic-instance-arithmetic
+fix_commit: ""
+fix_pr: ""
+description: >
+  Regression fixture for the instance-sizer arithmetic-attribution gap (N3).
+  WireDecoder.Decode reads two u16 fields from a stream via ReadU16(), passes
+  them to InstanceSizer's constructor (which stores them in this-fields _count
+  and _stride), then calls sizer.TotalBytes() to compute (int)_count * (int)_stride.
+  Without N3, the walk of TotalBytes sees no tainted inputs (bitmask=0, seedFields=[]
+  because the receiver is a local, not caller's `this`), so the `*` instruction
+  never emits an arithmetic hop — only an identity call-boundary hop appears.
+  With N3, primitive this-fields (_count, _stride) are seeded, enabling hop 8:
+  arithmetic at TotalBytes:47 with tainted_value_out=_count*_stride.
+
+source:
+  method: SyntheticInstanceArithmetic.WireDecoder.Decode
+  file: Decoder.cs
+  line: 18
+  role: source
+  tainted_value_in: stream
+  transformation: read_stream
+  tainted_value_out: stream
+  kind: decoder_entry
+sink:
+  method: SyntheticInstanceArithmetic.WireDecoder.Decode
+  file: Decoder.cs
+  line: 23
+  role: sink
+  tainted_value_in: total
+  transformation: identity
+  tainted_value_out: total
+  kind: allocation
+  api: new_array
+  size_expression: total
+path:
+- hop: 0
+  method: SyntheticInstanceArithmetic.WireDecoder.Decode
+  file: Decoder.cs
+  line: 19
+  role: propagator
+  tainted_value_in: stream
+  transformation: identity
+  tainted_value_out: WireDecoder.ReadU16
+  dispatch:
+    kind: direct
+    static_type: SyntheticInstanceArithmetic.WireDecoder
+    resolved_targets: []
+    closure_boundary: false
+- hop: 1
+  method: SyntheticInstanceArithmetic.WireDecoder.ReadU16
+  file: Decoder.cs
+  line: 28
+  role: propagator
+  tainted_value_in: stream.ReadByte
+  transformation: arithmetic
+  tainted_value_out: stream.ReadByte
+- hop: 2
+  method: SyntheticInstanceArithmetic.WireDecoder.ReadU16
+  file: Decoder.cs
+  line: 28
+  role: propagator
+  tainted_value_in: stream.ReadByte|stream.ReadByte
+  transformation: cast
+  tainted_value_out: stream.ReadByte|stream.ReadByte
+- hop: 3
+  method: SyntheticInstanceArithmetic.WireDecoder.Decode
+  file: Decoder.cs
+  line: 20
+  role: propagator
+  tainted_value_in: stream
+  transformation: identity
+  tainted_value_out: WireDecoder.ReadU16
+  dispatch:
+    kind: direct
+    static_type: SyntheticInstanceArithmetic.WireDecoder
+    resolved_targets: []
+    closure_boundary: false
+- hop: 4
+  method: SyntheticInstanceArithmetic.WireDecoder.ReadU16
+  file: Decoder.cs
+  line: 28
+  role: propagator
+  tainted_value_in: stream.ReadByte
+  transformation: arithmetic
+  tainted_value_out: stream.ReadByte
+- hop: 5
+  method: SyntheticInstanceArithmetic.WireDecoder.ReadU16
+  file: Decoder.cs
+  line: 28
+  role: propagator
+  tainted_value_in: stream.ReadByte|stream.ReadByte
+  transformation: cast
+  tainted_value_out: stream.ReadByte|stream.ReadByte
+- hop: 6
+  method: SyntheticInstanceArithmetic.WireDecoder.Decode
+  file: Decoder.cs
+  line: 22
+  role: propagator
+  tainted_value_in: sizer
+  transformation: identity
+  tainted_value_out: InstanceSizer.TotalBytes
+  dispatch:
+    kind: virtual
+    static_type: SyntheticInstanceArithmetic.InstanceSizer
+    resolved_targets: []
+    closure_boundary: false
+- hop: 7
+  method: SyntheticInstanceArithmetic.InstanceSizer.TotalBytes
+  file: Decoder.cs
+  line: 47
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: _count
+- hop: 8
+  method: SyntheticInstanceArithmetic.InstanceSizer.TotalBytes
+  file: Decoder.cs
+  line: 47
+  role: propagator
+  tainted_value_in: _count
+  transformation: arithmetic
+  tainted_value_out: _count*_stride
+sanitizer_absence:
+- location: Decoder.cs:22
+  expected_check: total must be bounded before reaching new_array at Decoder.cs:23
+  tainted_value: total

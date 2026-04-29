@@ -527,3 +527,35 @@ public sealed class GetterNamingHost
         return new byte[host.Value];
     }
 }
+
+// Milestone-G N3 fixtures — instance-sizer arithmetic attribution gap.
+//
+// InstanceSizer stores tainted inputs in this-fields via its constructor.
+// AllocateViaInstanceSizer creates a local InstanceSizer, then calls TotalBytes()
+// on it. Without N3, the walk of TotalBytes sees no tainted inputs (bitmask=0,
+// seedFields=[] because the receiver is a local, not caller's `this`), so the
+// `*` instruction never emits an arithmetic hop. With N3 the receiver's
+// this-fields are seeded, enabling the arithmetic hop to fire.
+public sealed class InstanceSizerFixture
+{
+    private readonly int _count;
+    private readonly int _stride;
+
+    public InstanceSizerFixture(int count, int stride)
+    {
+        _count = count;
+        _stride = stride;
+    }
+
+    public int TotalBytes() => _count * _stride;
+}
+
+public static class InstanceSizerHost
+{
+    public static byte[] AllocateViaInstanceSizer(int count, int stride)
+    {
+        var sizer = new InstanceSizerFixture(count, stride);
+        int total = sizer.TotalBytes();
+        return new byte[total];
+    }
+}

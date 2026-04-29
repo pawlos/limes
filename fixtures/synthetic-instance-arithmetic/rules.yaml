@@ -1,0 +1,3 @@
+vuln_id: synthetic-instance-arithmetic
+source_methods:
+  - SyntheticInstanceArithmetic.WireDecoder::Decode(System.IO.Stream)

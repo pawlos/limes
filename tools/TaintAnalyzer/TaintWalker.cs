@@ -857,6 +857,24 @@ public sealed class TaintWalker
         // the caller's currently-tainted field names that exist on the callee's declaring type.
         var seedFields = ComputeCrossMethodSeed(callerMethod, resolved, state, hasThisOnStack: receiverIsCallerThis);
 
+        // N3 — tainted-local-receiver seed: when a tainted local object (not the caller's own
+        // `this`) calls an in-assembly instance method, the callee's `this`-fields are invisible
+        // to the walk (bitmask=0, empty seedFields) even though those fields were populated from
+        // tainted data via the constructor. Seed PRIMITIVE (numeric) instance fields as tainted
+        // so that arithmetic ops like `_count * _stride` inside the callee emit a hop.
+        // Restricted to primitive fields (IsPrimitive) to avoid seeding Stream/object references —
+        // those would cause arithmetic hops inside I/O methods to appear, bloating the trace.
+        if (!receiverIsCallerThis && hasThisOnStack && receiverSlot.Tainted
+            && resolved.HasThis && resolved.DeclaringType.HasFields)
+        {
+            var primitiveFields = resolved.DeclaringType.Fields
+                .Where(static f => !f.IsStatic && f.FieldType.IsPrimitive)
+                .Select(static f => f.Name)
+                .ToList();
+            if (primitiveFields.Count > 0)
+                seedFields = primitiveFields;
+        }
+
         // Cross-method walk with seeded `this`-fields.
         var calleeSummary = WalkWithSeed(resolved, bitmask, seedFields);
 

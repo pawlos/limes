@@ -654,4 +654,39 @@ public class TaintWalkerTests
             (hop.TaintedValueOut ?? "").ShouldNotContain("get_");
         }
     }
+
+    [Fact]
+    public void Walk_TaintedLocalReceiver_EmitsArithmeticHopInsideCallee()
+    {
+        // N3: InstanceSizerFixture stores tainted inputs in _count/_stride via its constructor.
+        // The arithmetic `_count * _stride` inside TotalBytes() must appear as an arithmetic
+        // propagator hop attributed to TotalBytes, not just a call-boundary identity hop.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.InstanceSizerHost::AllocateViaInstanceSizer(System.Int32,System.Int32)")!,
+            taintedParamBitmask: 0b11);
+
+        summary.ReachedSink.ShouldBeTrue();
+        var arithHop = summary.Hops.FirstOrDefault(h => h.Transformation == "arithmetic");
+        arithHop.ShouldNotBeNull("N3: expected arithmetic hop for TotalBytes `_count * _stride`");
+        arithHop!.Method.ShouldContain("InstanceSizerFixture");
+    }
+
+    [Fact]
+    public void Walk_UntaintedLocalReceiver_NoArithmeticHopFromCallee()
+    {
+        // N3 must only fire when the receiver is tainted. With bitmask=0 (no tainted args),
+        // the sizer is constructed from untainted values and must not produce arithmetic hops.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.InstanceSizerHost::AllocateViaInstanceSizer(System.Int32,System.Int32)")!,
+            taintedParamBitmask: 0b0);
+
+        summary.ReachedSink.ShouldBeFalse("untainted inputs → no sink reached");
+        summary.Hops.ShouldBeEmpty("untainted inputs → no hops");
+    }
 }
