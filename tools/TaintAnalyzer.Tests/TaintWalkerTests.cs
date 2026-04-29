@@ -689,4 +689,41 @@ public class TaintWalkerTests
         summary.ReachedSink.ShouldBeFalse("untainted inputs → no sink reached");
         summary.Hops.ShouldBeEmpty("untainted inputs → no hops");
     }
+
+    [Fact]
+    public void Walk_SameCalleeCalledTwice_CalleeHopsNotDuplicated()
+    {
+        // U10: Double(n) is called twice in CallHelperTwice. Without U10, Double's
+        // arithmetic hop (x * 2) would appear twice in the summary Hops list.
+        // With U10, it must appear exactly once.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.U10DoubleCallFixtures::CallHelperTwice(System.Int32)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.ReachedSink.ShouldBeTrue();
+        int doubleArithHops = summary.Hops.Count(h =>
+            h.Transformation == "arithmetic"
+            && (h.Method ?? "").Contains("U10DoubleCallFixtures")
+            && !(h.Method ?? "").Contains("CallHelperTwice"));
+        doubleArithHops.ShouldBe(1, "U10: Double's arithmetic hop must not be duplicated on second call");
+    }
+
+    [Fact]
+    public void Walk_SameCalleeUntainted_NoHopsEither()
+    {
+        // Guard: with bitmask=0, no taint flows — CallHelperTwice should not reach the sink
+        // and produce no hops regardless of U10.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.U10DoubleCallFixtures::CallHelperTwice(System.Int32)")!,
+            taintedParamBitmask: 0b0);
+
+        summary.ReachedSink.ShouldBeFalse();
+        summary.Hops.ShouldBeEmpty();
+    }
 }

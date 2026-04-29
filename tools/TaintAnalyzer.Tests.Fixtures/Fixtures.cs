@@ -559,3 +559,19 @@ public static class InstanceSizerHost
         return new byte[total];
     }
 }
+
+// Milestone-G U10 fixtures — per-walk callee-expansion guard.
+public static class U10DoubleCallFixtures
+{
+    // Emits exactly one arithmetic hop (mul). Used to detect duplicates.
+    internal static int Double(int x) => x * 2;
+
+    // Calls Double twice with the same tainted arg.
+    // U10 must ensure Double's arithmetic hop appears exactly once in the walk.
+    public static byte[] CallHelperTwice(int n)
+    {
+        int a = Double(n);
+        int b = Double(n);
+        return new byte[a + b];
+    }
+}

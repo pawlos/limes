@@ -90,6 +90,10 @@ public sealed class TaintWalker
         // Hop counter resets per method; Task 11 refines to aggregate hops across the call chain.
         int hopCounter = 0;
         var newlyTaintedFields = new HashSet<string>(StringComparer.Ordinal);
+        // U10 — tracks which (callee.FullName|bitmask|seedKey) triples have already had their
+        // hops merged into this walk's flat list. Prevents duplicate appends when the same
+        // callee is called more than once with the same taint context.
+        var expandedCallees = new HashSet<string>(StringComparer.Ordinal);
 
         if (method.Body is null)
         {
@@ -157,7 +161,7 @@ public sealed class TaintWalker
                 returnsTainted = true;
             }
 
-            StepInstruction(method, ins, state, newlyTaintedFields, hops, ref hopCounter, ref reachedSink);
+            StepInstruction(method, ins, state, newlyTaintedFields, hops, ref hopCounter, ref reachedSink, expandedCallees);
         }
 
         // Sanitizer-absence synthesis lives in TraceEmitter — it has the per-sink path context
@@ -396,7 +400,7 @@ public sealed class TaintWalker
     private void StepInstruction(MethodDefinition method, Instruction ins, TaintState state,
                                  HashSet<string> newlyTaintedFields,
                                  List<HopRecord> hops, ref int hopCounter,
-                                 ref bool reachedSink)
+                                 ref bool reachedSink, HashSet<string> expandedCallees)
     {
         switch (ins.OpCode.Code)
         {
@@ -736,7 +740,7 @@ public sealed class TaintWalker
 
             case Code.Call:
             case Code.Callvirt:
-                if (HandleCall(method, ins, state, newlyTaintedFields, hops, ref hopCounter))
+                if (HandleCall(method, ins, state, newlyTaintedFields, hops, ref hopCounter, expandedCallees))
                 {
                     reachedSink = true;
                 }
@@ -772,7 +776,8 @@ public sealed class TaintWalker
     }
 
     private bool HandleCall(MethodDefinition callerMethod, Instruction ins, TaintState state,
-                           HashSet<string> newlyTaintedFields, List<HopRecord> hops, ref int hopCounter)
+                           HashSet<string> newlyTaintedFields, List<HopRecord> hops, ref int hopCounter,
+                           HashSet<string> expandedCallees)
     {
         var callee = (MethodReference)ins.Operand;
         var paramCount = callee.Parameters.Count;
@@ -878,6 +883,13 @@ public sealed class TaintWalker
         // Cross-method walk with seeded `this`-fields.
         var calleeSummary = WalkWithSeed(resolved, bitmask, seedFields);
 
+        // U10 — per-walk callee-expansion guard. The expansion key matches the memo key
+        // so the first call (which populates the memo) is also the one whose hops are merged.
+        // Subsequent calls with the same (callee, bitmask, seedKey) still emit the call-boundary
+        // identity hop (dispatch signal) but skip appending callee hops a second time.
+        var expansionKey = $"{resolved.FullName}|{bitmask}|{BuildSeedKey(seedFields)}";
+        bool alreadyExpanded = !expandedCallees.Add(expansionKey);
+
         // Return-value taint propagation: over-approximate — return is tainted when any tainted arg
         // was passed OR the callee's summary says ReturnsTainted OR the receiver itself was tainted
         // (any read on a tainted stream/object surfaces tainted bytes).
@@ -950,9 +962,13 @@ public sealed class TaintWalker
             // preserving each hop's Method label so the trace shows the cross-method chain.
             // Don't append calleeSummary.Absences — only the outermost walked method synthesizes
             // absences (the caller's WalkMethodBody end-block will emit at most one).
-            foreach (var calleeHop in calleeSummary.Hops)
+            // U10: skip append on repeated calls to the same callee (alreadyExpanded).
+            if (!alreadyExpanded)
             {
-                hops.Add(calleeHop);
+                foreach (var calleeHop in calleeSummary.Hops)
+                {
+                    hops.Add(calleeHop);
+                }
             }
         }
 
