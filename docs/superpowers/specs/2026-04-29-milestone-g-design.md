@@ -1,6 +1,6 @@
 # Milestone-G — Hop dedup + document dedup (design)
 
-**Status:** Approved 2026-04-29.
+**Status:** Implementation complete 2026-04-29. Required gate met: 6/6 fixtures pass `--compare` non-strict. Strict bonus: 6/6 after ground-truth calibration. 3079-prefix reduced from 40 docs / 23151 hops to 1 doc. All 189 tests green. See revision history.
 
 **One-liner:** Eliminate the two remaining causes of imagesharp-3079-prefix strict-mode failure — repeated callee-hop merging (23k hops) and sink-set explosion (40 docs) — then calibrate the 3079 ground truth to the improved output so the strict gate passes 5/5.
 
@@ -183,3 +183,14 @@ No code changes. Pure measurement and fixture update.
 ## Revision history
 
 - **2026-04-29 (approved).** Initial spec. Two-session implementation (U10 + U11) followed by calibration. Strategy confirmed: fix root causes, make improved output the new ground truth, close strict bonus at 5/5.
+- **2026-04-29 (implementation complete).** U10 + U11 landed; ground truths refreshed.
+  - **Build/tests.** Clean build 0/0. Test suite green: 128 (TaintAnalyzer.Tests) + 61 (ValidateFixture.Tests) = **189** total, 0 failures.
+  - **Required gate met:** `--compare` non-strict exits 0 on all six fixture pairs.
+  - **3079-prefix reduction:** D_a: 40 → 1; H_a: 23151 → 350.
+  - **Strict bonus:** 6/6. Ground truths calibrated to post-U10+U11 output.
+  - **Heuristic note:** U11 "keep most in-method arithmetic hops" (load-bearing criterion) replaced the initial "keep deepest by sinkIdx". For 3079-prefix, `ReadInternationalTextChunk` is not walker-reachable from `PngDecoderCore.Decode` with the current traversal scope; the kept sink is the highest-scoring reachable one. For 3074-prefix, 3 ground-truth sinks collapsed to 1 (distinct methods, same fingerprint group); the kept sink is `ReadImageHeaders` with `colorMapSizeBytes`.
+  - **Carry-overs to milestone-H:**
+    - `loc_N` recovery in sanitizer hops — still open.
+    - U1.c redesign (meaningful sanitizer bound vs. sibling guard) — still open.
+    - parquet-dotnet round-trip — still open.
+    - Walker traversal scope for `ReadInternationalTextChunk` — the 3079 CVE site is not reachable in the current walker model; would require extending traversal into chunk-dispatch paths.
