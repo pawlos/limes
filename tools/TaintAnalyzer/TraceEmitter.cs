@@ -73,6 +73,10 @@ public static class TraceEmitter
             }
         }
 
+        // U11 — path-prefix fingerprint dedup: group sinks sharing the same first 3 distinct
+        // propagator-method names; keep only the deepest (most specific) per group.
+        sinkIndices = FingerprintDedup(hops, sinkIndices, sourceIndices);
+
         var sb = new StringBuilder();
         for (int s = 0; s < sinkIndices.Count; s++)
         {
@@ -390,6 +394,70 @@ public static class TraceEmitter
         SinkApi.Stackalloc => "stackalloc",
         _ => null,
     };
+
+    // U11 helpers — path-prefix fingerprint dedup.
+
+    private static int FindPrecedingSourceIndex(List<int> sourceIndices, int sinkIdx)
+    {
+        for (int j = sourceIndices.Count - 1; j >= 0; j--)
+        {
+            if (sourceIndices[j] < sinkIdx) return sourceIndices[j];
+        }
+        return -1;
+    }
+
+    private static (string, string, string) ComputeFingerprint(
+        IReadOnlyList<HopRecord> hops, int sourceIdx, int sinkIdx)
+    {
+        // First 3 distinct method names in the propagator path (method must change from
+        // the previous hop's method to count as a new entry).
+        var methods = new List<string>(3);
+        string? prev = null;
+        for (int i = sourceIdx + 1; i < sinkIdx && methods.Count < 3; i++)
+        {
+            var hop = hops[i];
+            if (hop.Role != HopRole.Propagator) continue;
+            if (hop.Method != prev)
+            {
+                methods.Add(hop.Method);
+                prev = hop.Method;
+            }
+        }
+        while (methods.Count < 3) methods.Add("");
+        return (methods[0], methods[1], methods[2]);
+    }
+
+    private static List<int> FingerprintDedup(
+        IReadOnlyList<HopRecord> hops,
+        List<int> sinkIndices,
+        List<int> sourceIndices)
+    {
+        // Group sinks by fingerprint; keep the deepest (highest sinkIdx - sourceIdx) per group.
+        // Only dedup sinks whose fingerprint has all 3 slots filled (i.e., the propagator path
+        // passes through at least 3 distinct method names). Sinks with fewer than 3 distinct
+        // propagator methods are never collapsed — short / direct paths are inherently distinct.
+        var best = new Dictionary<(string, string, string), (int depth, int sinkIdx)>();
+        var passthrough = new List<int>();
+        foreach (int sinkIdx in sinkIndices)
+        {
+            int sourceIdx = FindPrecedingSourceIndex(sourceIndices, sinkIdx);
+            if (sourceIdx < 0) { passthrough.Add(sinkIdx); continue; }
+            var fp = ComputeFingerprint(hops, sourceIdx, sinkIdx);
+            if (fp.Item3 == "")
+            {
+                // Fewer than 3 distinct propagator methods — skip dedup, always keep.
+                passthrough.Add(sinkIdx);
+                continue;
+            }
+            int depth = sinkIdx - sourceIdx;
+            if (!best.TryGetValue(fp, out var prev) || depth > prev.depth)
+                best[fp] = (depth, sinkIdx);
+        }
+        var result = new List<int>(passthrough);
+        foreach (var v in best.Values) result.Add(v.sinkIdx);
+        result.Sort();
+        return result;
+    }
 
     // U9 — adjacent identical-tuple hop dedup. Runs after `pathHops` is built per document,
     // collapsing redundant runs that the walker's emission generated. Two sub-rules in one pass:

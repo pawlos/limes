@@ -624,4 +624,72 @@ public class TraceEmitterTests
         var hopCount = System.Text.RegularExpressions.Regex.Matches(yaml, @"^- hop:", System.Text.RegularExpressions.RegexOptions.Multiline).Count;
         hopCount.ShouldBe(3, "sanitizer hop is preserved between adjacent identity hops");
     }
+
+    [Fact]
+    public void Emit_TwoSinksWithSharedPathPrefix_CollapsesToDeepestDocument()
+    {
+        // U11: Sink A (depth 4) and Sink B (depth 6) share the same first 3 distinct
+        // propagator-method names (Helper1, Helper2, Helper3). FingerprintDedup must keep
+        // only Sink B (the deeper one) and drop Sink A.
+        var rules = new RulesDocument { VulnId = "v", SourceMethods = new() { "Ns.T::M()" } };
+        var hops = new HopRecord[]
+        {
+            new() { Hop = 0, Method = "Ns.T.M",       File = "T.cs", Line = 1,  Role = HopRole.Source,
+                    TaintedValueIn = "s", Transformation = "read_stream", TaintedValueOut = "s" },
+            new() { Hop = 1, Method = "Ns.Helper1",    File = "T.cs", Line = 10, Role = HopRole.Propagator,
+                    TaintedValueIn = "s", Transformation = "identity",   TaintedValueOut = "s" },
+            new() { Hop = 2, Method = "Ns.Helper2",    File = "T.cs", Line = 20, Role = HopRole.Propagator,
+                    TaintedValueIn = "s", Transformation = "arithmetic", TaintedValueOut = "n" },
+            new() { Hop = 3, Method = "Ns.Helper3",    File = "T.cs", Line = 30, Role = HopRole.Propagator,
+                    TaintedValueIn = "n", Transformation = "identity",   TaintedValueOut = "n" },
+            // Sink A — shallower (depth 4 from source)
+            new() { Hop = 4, Method = "Ns.Helper3",    File = "T.cs", Line = 31, Role = HopRole.Sink,
+                    TaintedValueIn = "n", Transformation = "identity",   TaintedValueOut = "n",
+                    SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "n" },
+            new() { Hop = 5, Method = "Ns.Helper3",    File = "T.cs", Line = 32, Role = HopRole.Propagator,
+                    TaintedValueIn = "n", Transformation = "identity",   TaintedValueOut = "n" },
+            // Sink B — deeper (depth 6 from source)
+            new() { Hop = 6, Method = "Ns.SinkMethod", File = "T.cs", Line = 40, Role = HopRole.Sink,
+                    TaintedValueIn = "n", Transformation = "identity",   TaintedValueOut = "n",
+                    SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "n" },
+        };
+
+        var yaml = TraceEmitter.Emit(rules, hops, Array.Empty<EmittedSanitizerAbsence>());
+
+        // U11 must produce exactly one document (Sink B — deeper wins).
+        var docs = yaml.Split("\n---\n");
+        docs.Length.ShouldBe(1, "U11 should collapse shared-prefix sinks to one document");
+        yaml.ShouldContain("line: 40");    // Sink B kept
+        yaml.ShouldNotContain("line: 31"); // Sink A dropped
+    }
+
+    [Fact]
+    public void Emit_TwoSinksWithDistinctPaths_KeepsBothDocuments()
+    {
+        // Guard: sinks with DIFFERENT 3-method fingerprints must not be collapsed.
+        var rules = new RulesDocument { VulnId = "v", SourceMethods = new() { "Ns.T::M()" } };
+        var hops = new HopRecord[]
+        {
+            new() { Hop = 0, Method = "Ns.T.M",    File = "T.cs", Line = 1,  Role = HopRole.Source,
+                    TaintedValueIn = "s", Transformation = "read_stream", TaintedValueOut = "s" },
+            // Path to Sink A: BranchX → SinkMethodA
+            new() { Hop = 1, Method = "Ns.BranchX", File = "T.cs", Line = 10, Role = HopRole.Propagator,
+                    TaintedValueIn = "s", Transformation = "identity",   TaintedValueOut = "s" },
+            new() { Hop = 2, Method = "Ns.SinkMethodA", File = "T.cs", Line = 20, Role = HopRole.Sink,
+                    TaintedValueIn = "s", Transformation = "identity",   TaintedValueOut = "s",
+                    SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "s" },
+            // Path to Sink B: BranchY → SinkMethodB (different first method)
+            new() { Hop = 3, Method = "Ns.BranchY", File = "T.cs", Line = 30, Role = HopRole.Propagator,
+                    TaintedValueIn = "s", Transformation = "identity",   TaintedValueOut = "s" },
+            new() { Hop = 4, Method = "Ns.SinkMethodB", File = "T.cs", Line = 40, Role = HopRole.Sink,
+                    TaintedValueIn = "s", Transformation = "identity",   TaintedValueOut = "s",
+                    SinkKind = SinkKind.Allocation, SinkApi = SinkApi.NewArray, SizeExpression = "s" },
+        };
+
+        var yaml = TraceEmitter.Emit(rules, hops, Array.Empty<EmittedSanitizerAbsence>());
+
+        // Different fingerprints → two documents must survive.
+        var docs = yaml.Split("\n---\n");
+        docs.Length.ShouldBe(2, "distinct-prefix sinks must each produce a document");
+    }
 }
