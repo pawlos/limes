@@ -74,7 +74,9 @@ public static class TraceEmitter
         }
 
         // U11 — path-prefix fingerprint dedup: group sinks sharing the same first 3 distinct
-        // propagator-method names; keep only the deepest (most specific) per group.
+        // propagator-method names. Same-method sinks within a group are all kept (distinct sites).
+        // Cross-method sinks: keep the one with the most arithmetic/field_load hops in its own
+        // method (most load-bearing); tiebreak by depth.
         sinkIndices = FingerprintDedup(hops, sinkIndices, sourceIndices);
 
         var sb = new StringBuilder();
@@ -406,6 +408,21 @@ public static class TraceEmitter
         return -1;
     }
 
+    private static int CountInMethodArithmeticHops(
+        IReadOnlyList<HopRecord> hops, int sourceIdx, int sinkIdx, string? sinkMethod)
+    {
+        int count = 0;
+        for (int i = sourceIdx + 1; i < sinkIdx; i++)
+        {
+            var hop = hops[i];
+            if (hop.Role == HopRole.Propagator
+                && hop.Method == sinkMethod
+                && (hop.Transformation == "arithmetic" || hop.Transformation == "field_load"))
+                count++;
+        }
+        return count;
+    }
+
     private static (string, string, string) ComputeFingerprint(
         IReadOnlyList<HopRecord> hops, int sourceIdx, int sinkIdx)
     {
@@ -432,29 +449,52 @@ public static class TraceEmitter
         List<int> sinkIndices,
         List<int> sourceIndices)
     {
-        // Group sinks by fingerprint; keep the deepest (highest sinkIdx - sourceIdx) per group.
-        // Only dedup sinks whose fingerprint has all 3 slots filled (i.e., the propagator path
-        // passes through at least 3 distinct method names). Sinks with fewer than 3 distinct
-        // propagator methods are never collapsed — short / direct paths are inherently distinct.
-        var best = new Dictionary<(string, string, string), (int depth, int sinkIdx)>();
-        var passthrough = new List<int>();
+        // Group sinks by path-prefix fingerprint.
+        var groups = new Dictionary<(string, string, string), List<int>>();
+        var orphans = new List<int>(); // sinks with no preceding source
+
         foreach (int sinkIdx in sinkIndices)
         {
             int sourceIdx = FindPrecedingSourceIndex(sourceIndices, sinkIdx);
-            if (sourceIdx < 0) { passthrough.Add(sinkIdx); continue; }
+            if (sourceIdx < 0) { orphans.Add(sinkIdx); continue; }
             var fp = ComputeFingerprint(hops, sourceIdx, sinkIdx);
-            if (fp.Item3 == "")
-            {
-                // Fewer than 3 distinct propagator methods — skip dedup, always keep.
-                passthrough.Add(sinkIdx);
-                continue;
-            }
-            int depth = sinkIdx - sourceIdx;
-            if (!best.TryGetValue(fp, out var prev) || depth > prev.depth)
-                best[fp] = (depth, sinkIdx);
+            if (!groups.TryGetValue(fp, out var group))
+                groups[fp] = group = new List<int>();
+            group.Add(sinkIdx);
         }
-        var result = new List<int>(passthrough);
-        foreach (var v in best.Values) result.Add(v.sinkIdx);
+
+        var result = new List<int>(orphans);
+        foreach (var group in groups.Values)
+        {
+            if (group.Count == 1) { result.Add(group[0]); continue; }
+
+            // If all sinks in this group are in the same method, keep them all —
+            // they are distinct vulnerability sites within the same callee.
+            bool allSameMethod = group.Select(idx => hops[idx].Method).Distinct().Count() == 1;
+            if (allSameMethod) { result.AddRange(group); continue; }
+
+            // Different sink methods: keep the one with the most arithmetic+field_load
+            // propagator hops within its own sink method. This prefers the sink where the
+            // dangerous size value is locally computed (most load-bearing).
+            // When tied on score, prefer the deeper sink (larger sinkIdx - sourceIdx).
+            int bestIdx = group[0];
+            int bestScore = -1;
+            int bestDepth = -1;
+            foreach (int sinkIdx in group)
+            {
+                int sourceIdx = FindPrecedingSourceIndex(sourceIndices, sinkIdx);
+                int score = CountInMethodArithmeticHops(hops, sourceIdx, sinkIdx, hops[sinkIdx].Method);
+                int depth = sinkIdx - sourceIdx;
+                if (score > bestScore || (score == bestScore && depth > bestDepth))
+                {
+                    bestIdx = sinkIdx;
+                    bestScore = score;
+                    bestDepth = depth;
+                }
+            }
+            result.Add(bestIdx);
+        }
+
         result.Sort();
         return result;
     }
