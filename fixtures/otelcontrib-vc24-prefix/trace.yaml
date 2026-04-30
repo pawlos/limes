@@ -1,0 +1,31 @@
+vuln_id: otelcontrib-vc24-prefix
+fix_commit: 9d8a364af919f62c088edd641c554cb720198964
+fix_pr: "https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/4121"
+description: >
+  Pre-fix OpenTelemetry.Resources.Azure: AzureVmMetaDataRequestor calls
+  httpClient.GetStringAsync() without a size limit on the response body
+  (GHSA-vc24-j8c5-2vw4). An attacker controlling the Azure IMDS endpoint
+  or a network path can cause memory exhaustion via an oversized response.
+
+source:
+  method: OpenTelemetry.Resources.Azure.AzureVmMetaDataRequestor.GetAzureVmMetaDataResponseDefault
+  file: AzureVmMetaDataRequestor.cs
+  line: 15
+  role: source
+  tainted_value_in: arg0
+  transformation: read_stream
+  tainted_value_out: arg0
+  kind: decoder_entry
+sink:
+  method: OpenTelemetry.Resources.Azure.AzureVmMetaDataRequestor.GetAzureVmMetaDataResponseDefault
+  file: AzureVmMetaDataRequestor.cs
+  line: 19
+  role: sink
+  tainted_value_in: HttpClient
+  transformation: identity
+  tainted_value_out: HttpClient
+  kind: allocation
+  api: http_client_read
+  size_expression: HttpClient
+path: []
+sanitizer_absence: []

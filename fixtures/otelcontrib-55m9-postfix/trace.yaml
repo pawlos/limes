@@ -1,0 +1,9 @@
+vuln_id: otelcontrib-55m9-postfix
+fix_commit: 77dc5d14fcdf6c6b3aeba5f8bba5dfded90495c9
+fix_pr: "https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/4117"
+description: >
+  Post-fix OpenTelemetry.Exporter.OneCollector 1.15.1: response body reading
+  delegated to HttpClientHelpers.TryGetResponseBodyAsString() with 4 MiB ceiling.
+  The direct ReadAsStringAsync() sink is gone. Remaining sink (if any) is
+  new byte[totalRead] inside HttpClientHelpers, bounded by loop guard (known
+  limitation — loop-guard sanitizer shape not yet modelled).

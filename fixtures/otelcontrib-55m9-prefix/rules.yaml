@@ -1,0 +1,7 @@
+vuln_id: otelcontrib-55m9-prefix
+source_methods:
+  - signature: OpenTelemetry.Exporter.OneCollector.HttpJsonPostTransport::Send(OpenTelemetry.Exporter.OneCollector.TransportSendRequest&)
+    taint_from_external_returns:
+      - HttpClient::Send
+      - HttpClient::SendAsync
+      - IHttpClient::Send

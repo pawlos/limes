@@ -1,0 +1,94 @@
+vuln_id: otelcontrib-55m9-prefix
+fix_commit: 77dc5d14fcdf6c6b3aeba5f8bba5dfded90495c9
+fix_pr: "https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/4117"
+description: >
+  Pre-fix OpenTelemetry.Exporter.OneCollector: HttpJsonPostTransport reads
+  the error response body via ReadAsStringAsync() without a size limit
+  (GHSA-55m9-299j-53c7). An attacker controlling the
+  backend endpoint can cause memory exhaustion via oversized error responses.
+
+source:
+  method: OpenTelemetry.Exporter.OneCollector.HttpJsonPostTransport.Send
+  file: HttpJsonPostTransport.cs
+  line: 70
+  role: source
+  tainted_value_in: sendRequest
+  transformation: read_stream
+  tainted_value_out: sendRequest
+  kind: decoder_entry
+sink:
+  method: OpenTelemetry.Exporter.OneCollector.HttpJsonPostTransport.Send
+  file: HttpJsonPostTransport.cs
+  line: 135
+  role: sink
+  tainted_value_in: HttpContent
+  transformation: identity
+  tainted_value_out: HttpContent
+  kind: allocation
+  api: http_content_read
+  size_expression: HttpContent
+path:
+- hop: 0
+  method: OpenTelemetry.Exporter.OneCollector.HttpJsonPostTransport.Send
+  file: HttpJsonPostTransport.cs
+  line: 71
+  role: propagator
+  tainted_value_in: sendRequest
+  transformation: identity
+  tainted_value_out: TransportSendRequest.ItemStream
+  dispatch:
+    kind: direct
+    static_type: OpenTelemetry.Exporter.OneCollector.TransportSendRequest
+    resolved_targets: []
+    closure_boundary: false
+- hop: 1
+  method: OpenTelemetry.Exporter.OneCollector.HttpJsonPostTransport.BuildRequestContent
+  file: HttpJsonPostTransport.cs
+  line: 178
+  role: sanitizer
+  tainted_value_in: loc_2
+  transformation: identity
+  tainted_value_out: loc_2
+  dispatch:
+    kind: direct
+    static_type: OpenTelemetry.Exporter.OneCollector.HttpJsonPostTransport
+    resolved_targets: []
+    closure_boundary: false
+  establishes_bound:
+    target: loc_2
+    relation: ==
+    upper_bound: 1
+  on_failure:
+    kind: throw
+- hop: 2
+  method: OpenTelemetry.Exporter.OneCollector.HttpJsonPostTransport.Send
+  file: HttpJsonPostTransport.cs
+  line: 115
+  role: propagator
+  tainted_value_in: sendRequest
+  transformation: identity
+  tainted_value_out: TransportSendRequest.ItemType
+  dispatch:
+    kind: direct
+    static_type: OpenTelemetry.Exporter.OneCollector.TransportSendRequest
+    resolved_targets: []
+    closure_boundary: false
+- hop: 3
+  method: OpenTelemetry.Exporter.OneCollector.TransportSendRequest.get_NumberOfItems
+  file: TransportSendRequest.cs
+  line: 38
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <NumberOfItems>k__BackingField
+  dispatch:
+    kind: direct
+    static_type: OpenTelemetry.Exporter.OneCollector.TransportSendRequest
+    resolved_targets: []
+    closure_boundary: false
+sanitizer_absence:
+- location: HttpJsonPostTransport.cs:71
+  expected_check: HttpContent (via TransportSendRequest.ItemStream) must be bounded before reaching http_content_read at HttpJsonPostTransport.cs:135
+  tainted_value: HttpContent (via TransportSendRequest.ItemStream)
+  present_pre_fix: true
+  present_post_fix: false

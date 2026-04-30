@@ -1,0 +1,6 @@
+vuln_id: otelcontrib-vc24-postfix
+source_methods:
+  - signature: OpenTelemetry.Resources.Azure.AzureVmMetaDataRequestor::GetAzureVmMetaDataResponseDefault()
+    taint_from_external_returns:
+      - HttpClient::GetStringAsync
+      - HttpClient::GetByteArrayAsync

@@ -123,6 +123,17 @@ public static class Program
             Console.Error.WriteLine("error: ground-truth file is empty");
             return 2;
         }
+
+        // Post-fix fixture: ground-truth is metadata-only (all docs have no sink) and the
+        // analyzer produces empty output (zero documents). This is the expected state — the
+        // fixed DLL no longer contains the vulnerable sink. Treat as a clean pass.
+        bool gtIsMetadataOnly = gtDocs.All(d => d.Sink is null);
+        if (anDocs.Count == 0 && gtIsMetadataOnly)
+        {
+            Console.WriteLine($"OK: {analyzerPath} matches {groundTruthPath} (post-fix: 0 traces expected, 0 produced)");
+            return 0;
+        }
+
         if (anDocs.Count == 0)
         {
             Console.Error.WriteLine("error: analyzer-output file is empty");

@@ -1,0 +1,8 @@
+vuln_id: otelcontrib-vc24-postfix
+fix_commit: 9d8a364af919f62c088edd641c554cb720198964
+fix_pr: "https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/4121"
+description: >
+  Post-fix OpenTelemetry.Resources.Azure 1.15.1-beta.1: GetStringAsync() replaced
+  by HttpClientHelpers.GetResponseBodyAsString() with size ceiling. The direct
+  http_client_read sink is gone. Analyzer produces no trace on the post-fix DLL
+  (zero documents).
