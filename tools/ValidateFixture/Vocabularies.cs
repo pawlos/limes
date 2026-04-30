@@ -41,5 +41,6 @@ public static class Vocabularies
         "new_array", "array_pool_rent", "alloc_hglobal",
         "memory_pool_rent", "stackalloc",
         "span_index", "span_slice",
+        "http_content_read", "http_client_read",
     }.ToFrozenSet(StringComparer.Ordinal);
 }

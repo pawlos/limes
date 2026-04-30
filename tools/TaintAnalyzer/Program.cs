@@ -105,6 +105,8 @@ public static class Program
                 // Seed: every non-receiver parameter tainted (source defines which params are attacker-controlled).
                 int bitmask = (1 << source.Parameters.Count) - 1;
                 var seedFields = entry.SeedThisFields ?? (IReadOnlyCollection<string>)Array.Empty<string>();
+                walker.TaintFromExternalReturns = entry.TaintFromExternalReturns
+                    ?? (IReadOnlyList<string>)Array.Empty<string>();
                 var summary = walker.WalkWithSeed(source, bitmask, seedFields);
 
                 // Emit a `source` hop from the source method's first sequence point.

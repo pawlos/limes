@@ -394,6 +394,8 @@ public static class TraceEmitter
         SinkApi.SpanSlice => "span_slice",
         SinkApi.SpanIndex => "span_index",
         SinkApi.Stackalloc => "stackalloc",
+        SinkApi.HttpContentRead => "http_content_read",
+        SinkApi.HttpClientRead => "http_client_read",
         _ => null,
     };
 

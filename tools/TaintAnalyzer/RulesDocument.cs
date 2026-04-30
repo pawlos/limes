@@ -20,6 +20,7 @@ public sealed class SourceMethodEntry
 {
     public string Signature { get; init; } = "";
     public List<string>? SeedThisFields { get; init; }
+    public List<string>? TaintFromExternalReturns { get; init; }
 
     // Convenience: callers (mostly tests) constructing a RulesDocument programmatically can
     // still write `new RulesDocument { SourceMethods = new() { "Ns.T::M()" } }` without
@@ -142,6 +143,7 @@ internal sealed class SourceMethodEntryConverter : IYamlTypeConverter
             parser.MoveNext();
             string? signature = null;
             List<string>? seedFields = null;
+            List<string>? taintFromExternalReturns = null;
 
             while (parser.Current is not MappingEnd)
             {
@@ -182,6 +184,25 @@ internal sealed class SourceMethodEntryConverter : IYamlTypeConverter
                         parser.MoveNext();
                         break;
 
+                    case "taint_from_external_returns":
+                        if (parser.Current is not SequenceStart)
+                        {
+                            throw new RulesDocumentException("source_methods entry: 'taint_from_external_returns' must be a list");
+                        }
+                        parser.MoveNext();
+                        taintFromExternalReturns = new List<string>();
+                        while (parser.Current is not SequenceEnd)
+                        {
+                            if (parser.Current is not Scalar extRetScalar)
+                            {
+                                throw new RulesDocumentException("source_methods entry: 'taint_from_external_returns' entries must be scalar strings");
+                            }
+                            taintFromExternalReturns.Add(extRetScalar.Value);
+                            parser.MoveNext();
+                        }
+                        parser.MoveNext();
+                        break;
+
                     default:
                         // Unknown key: skip the value to keep the parser in sync. Matches the
                         // top-level `IgnoreUnmatchedProperties` policy.
@@ -195,7 +216,7 @@ internal sealed class SourceMethodEntryConverter : IYamlTypeConverter
             {
                 throw new RulesDocumentException("source_methods entry: object form requires 'signature' field");
             }
-            return new SourceMethodEntry { Signature = signature, SeedThisFields = seedFields };
+            return new SourceMethodEntry { Signature = signature, SeedThisFields = seedFields, TaintFromExternalReturns = taintFromExternalReturns };
         }
 
         throw new RulesDocumentException(

@@ -491,6 +491,46 @@ public class FixtureValidatorTests
         diagnostics.ShouldNotContain(d => d.Code == "FX024");
     }
 
+    [Fact]
+    public void Validate_HttpContentReadApi_PassesFX015AndFX024()
+    {
+        // http_content_read is a valid api under allocation kind.
+        // Must not emit FX015 (invalid vocab) or FX024 (kind/api mismatch).
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: http_content_read, file: f, line: 2, size_expression: "n", method: M, role: sink, tainted_value_in: x, transformation: identity, tainted_value_out: x }
+            path: []
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldNotContain(d => d.Code == "FX015");
+        diagnostics.ShouldNotContain(d => d.Code == "FX024");
+    }
+
+    [Fact]
+    public void Validate_HttpClientReadApi_PassesFX015AndFX024()
+    {
+        // http_client_read is a valid api under allocation kind.
+        // Must not emit FX015 (invalid vocab) or FX024 (kind/api mismatch).
+        var yaml = """
+            vuln_id: t
+            fix_commit: 0
+            fix_pr: u
+            description: d
+            source: { kind: decoder_entry, method: M, file: f, line: 1, role: source, tainted_value_in: x, transformation: read_stream, tainted_value_out: x }
+            sink: { kind: allocation, api: http_client_read, file: f, line: 2, size_expression: "n", method: M, role: sink, tainted_value_in: x, transformation: identity, tainted_value_out: x }
+            path: []
+            sanitizer_absence: []
+            """;
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+        diagnostics.ShouldNotContain(d => d.Code == "FX015");
+        diagnostics.ShouldNotContain(d => d.Code == "FX024");
+    }
+
     private sealed class TempDirectory : IDisposable
     {
         public string Path { get; } = Directory.CreateTempSubdirectory("fixture-tests-").FullName;

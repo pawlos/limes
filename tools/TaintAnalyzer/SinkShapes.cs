@@ -131,4 +131,38 @@ public static class SinkShapes
             SizeProvenance = sizeSlot.Provenance,
         };
     }
+
+    // Milestone-H: unconditional sink for unbounded HTTP response reads.
+    // Fires on any call to the listed methods regardless of receiver taint — the call itself
+    // is the dangerous operation. Noise is controlled by source-entry selection in rules.yaml.
+    public static SinkMatch? MatchHttpRead(Instruction instruction, SymbolicStack stack)
+    {
+        if (instruction.OpCode.Code is not (Code.Call or Code.Callvirt)) return null;
+        var mr = (MethodReference)instruction.Operand;
+        var typeName = mr.DeclaringType.Name;
+        var methodName = mr.Name;
+
+        SinkApi? api = (typeName, methodName) switch
+        {
+            ("HttpContent", "ReadAsStringAsync" or "ReadAsByteArrayAsync" or "ReadAsStreamAsync")
+                => SinkApi.HttpContentRead,
+            ("HttpClient", "GetStringAsync" or "GetByteArrayAsync" or "GetStreamAsync")
+                => SinkApi.HttpClientRead,
+            _ => null,
+        };
+        if (api is null) return null;
+
+        // Retrieve receiver for provenance: receiver is paramCount slots from top.
+        int paramCount = mr.Parameters.Count;
+        if (stack.Depth < paramCount + 1) return null;
+        var receiver = stack.Peek(paramCount);
+        var provenance = receiver.Tainted ? receiver.Provenance : mr.DeclaringType.Name;
+
+        return new SinkMatch
+        {
+            Kind = SinkKind.Allocation,
+            Api = api.Value,
+            SizeProvenance = provenance,
+        };
+    }
 }

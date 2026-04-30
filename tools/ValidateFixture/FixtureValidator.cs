@@ -57,10 +57,10 @@ public sealed class FixtureValidator
             {
                 if (sinkForCoupling.Api is { } api && Vocabularies.SinkApis.Contains(api))
                 {
-                    if (api is not ("new_array" or "array_pool_rent" or "alloc_hglobal" or "memory_pool_rent" or "stackalloc"))
+                    if (api is not ("new_array" or "array_pool_rent" or "alloc_hglobal" or "memory_pool_rent" or "stackalloc" or "http_content_read" or "http_client_read"))
                     {
                         diagnostics.Add(new Diagnostic("FX024",
-                            $"sink.kind 'allocation' is not compatible with sink.api '{api}' (expected one of new_array, array_pool_rent, alloc_hglobal, memory_pool_rent, stackalloc)"));
+                            $"sink.kind 'allocation' is not compatible with sink.api '{api}' (expected one of new_array, array_pool_rent, alloc_hglobal, memory_pool_rent, stackalloc, http_content_read, http_client_read)"));
                     }
                 }
                 if (string.IsNullOrWhiteSpace(sinkForCoupling.SizeExpression))

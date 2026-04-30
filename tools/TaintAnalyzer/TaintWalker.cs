@@ -19,6 +19,11 @@ public sealed class TaintWalker
     private int _depth;
     private const int MaxDepth = 256;
 
+    // Set by Program.cs before each WalkWithSeed to specify which external methods
+    // should have their return value treated as tainted regardless of input taint.
+    // Entries are matched as "TypeName::MethodName" (class name without namespace).
+    public IReadOnlyList<string> TaintFromExternalReturns { get; set; } = Array.Empty<string>();
+
     public TaintWalker(AssemblyContext context) => _context = context;
 
     public MethodSummary Walk(MethodDefinition method, int taintedParamBitmask)
@@ -221,7 +226,8 @@ public sealed class TaintWalker
             ?? SinkShapes.MatchArrayPoolRent(ins, state.Stack)
             ?? SinkShapes.MatchReadOnlySpanSlice(ins, state.Stack)
             ?? SinkShapes.MatchReadOnlySpanIndex(ins, state.Stack)
-            ?? SinkShapes.MatchLocalloc(ins, state.Stack);
+            ?? SinkShapes.MatchLocalloc(ins, state.Stack)
+            ?? SinkShapes.MatchHttpRead(ins, state.Stack);
 
         if (m is null) return false;
 
@@ -302,6 +308,24 @@ public sealed class TaintWalker
             return name.Substring(4);
         }
         return name;
+    }
+
+    private bool MatchesTaintFromExternalReturn(MethodReference callee)
+    {
+        foreach (var entry in TaintFromExternalReturns)
+        {
+            var sep = entry.IndexOf("::", StringComparison.Ordinal);
+            if (sep < 0)
+            {
+                if (callee.Name == entry) return true;
+            }
+            else
+            {
+                if (callee.DeclaringType.Name == entry[..sep] && callee.Name == entry[(sep + 2)..])
+                    return true;
+            }
+        }
+        return false;
     }
 
     // N1 — predicate for whether a PDB-resolved local name is suitable for use as a slot's
@@ -828,19 +852,27 @@ public sealed class TaintWalker
             // tainted return. Required for `Nullable<T>::get_Value()` on a tainted struct,
             // `Span<>::Slice` / `op_Implicit`, `BinaryPrimitives::ReadInt16LE(rosBuffer)`, etc.
             // (Without this, the #3074 chain `this.fileHeader.Value.Offset` drops taint at .Value.)
+            // taint_from_external_returns: unconditionally taint returns from annotated methods.
+            bool matchesTaintSource = MatchesTaintFromExternalReturn(callee);
+
             if (!IsVoidReturn(callee))
             {
-                if (anyTaintedInput)
+                if (anyTaintedInput || matchesTaintSource)
                 {
                     string prov;
                     if (hasThisOnStack && receiverSlot.Tainted)
                     {
                         prov = $"{receiverSlot.Provenance}.{CleanCalleeName(callee)}";
                     }
-                    else
+                    else if (argSlots.Any(s => s.Tainted))
                     {
                         var firstTainted = argSlots.First(s => s.Tainted);
                         prov = $"{callee.DeclaringType.Name}.{CleanCalleeName(callee)}({firstTainted.Provenance})";
+                    }
+                    else
+                    {
+                        // Network/external source: no tainted args, taint introduced by annotation.
+                        prov = $"{callee.DeclaringType.Name}.{CleanCalleeName(callee)}";
                     }
                     state.Stack.Push(StackSlot.TaintedWith(prov));
                 }

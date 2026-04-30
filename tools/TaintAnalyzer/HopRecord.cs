@@ -4,7 +4,7 @@ public enum HopRole { Source, Propagator, Sanitizer, Sink }
 
 public enum SinkKind { Allocation, SpanAccess }
 
-public enum SinkApi { NewArray, ArrayPoolRent, SpanSlice, SpanIndex, Stackalloc }
+public enum SinkApi { NewArray, ArrayPoolRent, SpanSlice, SpanIndex, Stackalloc, HttpContentRead, HttpClientRead }
 
 public enum FailureKind { Throw, ReturnEarly }
 

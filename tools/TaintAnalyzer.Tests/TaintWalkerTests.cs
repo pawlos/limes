@@ -726,4 +726,75 @@ public class TaintWalkerTests
         summary.ReachedSink.ShouldBeFalse();
         summary.Hops.ShouldBeEmpty();
     }
+
+    [Fact]
+    public void Walk_TaintFromExternalReturns_SeededMethod_NewArraySinkFires()
+    {
+        // When TaintFromExternalReturns includes "Path::GetFullPath", the return is treated
+        // as tainted even though no input args are tainted. The tainted path.Length then
+        // flows into new byte[path.Length], firing the NewArray sink.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+        walker.TaintFromExternalReturns = new[] { "Path::GetFullPath" };
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.ExternalReturnTaintFixtures::AllocFromExternalPathResult()")!,
+            taintedParamBitmask: 0b0);
+
+        summary.ReachedSink.ShouldBeTrue("seeded external return must taint the call result");
+        summary.Hops.ShouldContain(h => h.SinkApi == SinkApi.NewArray,
+            "tainted path.Length must flow to new byte[] sink");
+    }
+
+    [Fact]
+    public void Walk_TaintFromExternalReturns_NotSet_NewArrayDoesNotFire()
+    {
+        // Without TaintFromExternalReturns, GetFullPath returns untainted → no NewArray sink.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.ExternalReturnTaintFixtures::AllocFromExternalPathResult()")!,
+            taintedParamBitmask: 0b0);
+
+        summary.ReachedSink.ShouldBeFalse("no tainted input → no sink");
+    }
+
+    [Fact]
+    public void Walk_HttpClientGetStringAsync_HttpClientReadSinkFires()
+    {
+        // MatchHttpRead must fire unconditionally on HttpClient.GetStringAsync even when
+        // the receiver (client) is untainted and TaintFromExternalReturns is empty.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.HttpClientReadFixtures::AllocFromHttpGetString()")!,
+            taintedParamBitmask: 0b0);
+
+        summary.ReachedSink.ShouldBeTrue("MatchHttpRead fires unconditionally on GetStringAsync");
+        summary.Hops.ShouldContain(h => h.SinkApi == SinkApi.HttpClientRead,
+            "HttpClient.GetStringAsync must produce an HttpClientRead sink hop");
+        summary.Hops.ShouldNotContain(h => h.SinkApi == SinkApi.NewArray,
+            "untainted result.Length must not produce a NewArray sink");
+    }
+
+    [Fact]
+    public void Walk_HttpClientGetStringAsync_WithExternalReturn_BothSinksFire()
+    {
+        // With TaintFromExternalReturns, GetStringAsync return is tainted → result.Length
+        // tainted → new byte[result.Length] fires as NewArray in addition to HttpClientRead.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+        walker.TaintFromExternalReturns = new[] { "HttpClient::GetStringAsync" };
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.HttpClientReadFixtures::AllocFromHttpGetString()")!,
+            taintedParamBitmask: 0b0);
+
+        summary.ReachedSink.ShouldBeTrue();
+        summary.Hops.ShouldContain(h => h.SinkApi == SinkApi.HttpClientRead);
+        summary.Hops.ShouldContain(h => h.SinkApi == SinkApi.NewArray,
+            "tainted result.Length must flow to new byte[] sink");
+    }
 }

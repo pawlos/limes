@@ -575,3 +575,32 @@ public static class U10DoubleCallFixtures
         return new byte[a + b];
     }
 }
+
+// Milestone-H fixtures — taint_from_external_returns source annotation.
+public static class ExternalReturnTaintFixtures
+{
+    // Calls System.IO.Path.GetFullPath (external static, no receiver, no tainted args).
+    // Without TaintFromExternalReturns: path is untainted → new byte[] doesn't fire.
+    // With TaintFromExternalReturns=["Path::GetFullPath"]: path is tainted → NewArray fires.
+    public static byte[] AllocFromExternalPathResult()
+    {
+        var path = System.IO.Path.GetFullPath(".");
+        return new byte[path.Length];
+    }
+}
+
+// Milestone-H fixtures — HTTP content read sink shapes.
+public static class HttpClientReadFixtures
+{
+    // Calls HttpClient.GetStringAsync (in System.Net.Http.HttpClient, external to analyzed assembly).
+    // MatchHttpRead fires unconditionally on the GetStringAsync call → HttpClientRead sink.
+    // Without TaintFromExternalReturns: result is untainted, new byte[] doesn't fire.
+    // With TaintFromExternalReturns=["HttpClient::GetStringAsync"]: result is tainted,
+    // result.Length tainted, new byte[result.Length] fires as NewArray.
+    public static byte[] AllocFromHttpGetString()
+    {
+        using var client = new System.Net.Http.HttpClient();
+        var result = client.GetStringAsync("http://example.com").GetAwaiter().GetResult();
+        return new byte[result.Length];
+    }
+}
