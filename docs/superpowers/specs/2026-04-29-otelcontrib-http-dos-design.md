@@ -1,6 +1,6 @@
 # Milestone-H — HTTP response DoS detection (design)
 
-**Status:** Approved 2026-04-29.
+**Status:** Implementation complete 2026-04-29. taint_from_external_returns + MatchHttpRead landed. Four OTel fixture pairs (otelcontrib-55m9 + otelcontrib-vc24) pass --compare non-strict. Phase 2 triage report in docs/. 195 tests green.
 
 **One-liner:** Extend the analyzer to detect unbounded HTTP response body reads (CWE-770) by adding a `taint_from_external_returns` source annotation and two new HTTP sink shapes, then produce fixture pairs for GHSA-55m9-299j-53c7 and GHSA-vc24-j8c5-2vw4, followed by a broad scan of HTTP-adjacent OpenTelemetry packages.
 
@@ -239,3 +239,9 @@ For each: write a `rules.yaml` with the identified entry point + `taint_from_ext
 
 - **2026-04-29 (approved).** Initial spec. Option B (per-source-entry `taint_from_external_returns`) selected over global external-taint-source list and `seed_this_fields` workaround. Phase 2 scoped to HTTP-adjacent contrib packages only (7 packages).
 - **2026-04-29 (updated post-approval).** Post-fix fixture expectations clarified: the fix replaces `ReadAsStringAsync`/`GetStringAsync` with `HttpClientHelpers.GetResponseBodyAsString()` which uses a loop-guard bound (`while (total < limit)`) not recognised by our current sanitizer shapes. Post-fix traces show `sanitizer_absence` on an internal `new byte[totalRead]` (different location, smaller scope than pre-fix). `MatchHttpRead` unconditional (no receiver taint check) to handle the Azure case where `httpClient` is an untainted local. Loop-guard sanitizer shape deferred to a future milestone.
+- **2026-04-29 (implementation complete).** Components 1+2 landed; four fixture pairs authored; Phase 2 scan complete.
+  - **Build/tests:** Clean build 0/0. 195 tests passing (63 ValidateFixture + 132 TaintAnalyzer).
+  - **Fixtures:** otelcontrib-55m9-prefix/postfix and otelcontrib-vc24-prefix/postfix all pass --compare non-strict.
+  - **Pre-fix detection:** http_content_read sink fires in OneCollector pre-fix; http_client_read sink fires in Azure pre-fix.
+  - **Post-fix:** ReadAsStringAsync/GetStringAsync calls gone; MatchHttpRead no longer fires. ValidateFixture.Program.cs updated: metadata-only ground truth + empty analyzer output = exit 0.
+  - **Phase 2:** 7 packages scanned at main. 0 confirmed new vulnerabilities. 3 false-positives (array_pool_rent/http_content_read inside bounded HttpClientHelpers 4 MiB wrapper). 4 no-sink (GCP, Container, Http instrumentation, InstrAWS do not read HTTP response bodies directly). Both disclosed CVEs confirmed fixed on main branch.
