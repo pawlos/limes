@@ -604,3 +604,26 @@ public static class HttpClientReadFixtures
         return new byte[result.Length];
     }
 }
+
+// Fixtures for AsyncStateMachineResolver tests. Each method is intentionally minimal —
+// the resolver only inspects custom attributes and the state-machine type structure.
+public static class AsyncSourceFixtures
+{
+    // Sync method — no AsyncStateMachineAttribute. Resolver returns this method unchanged.
+    public static int Sync(int x) => x + 1;
+
+    // Plain async method. Compiler emits `[AsyncStateMachine(typeof(<AsyncSimple>d__N))]`
+    // on the stub and lowers the body into the nested type's MoveNext.
+    public static async System.Threading.Tasks.Task<int> AsyncSimple(int x)
+    {
+        await System.Threading.Tasks.Task.Yield();
+        return x + 1;
+    }
+
+    // Generic async method — state machine type is generic (<AsyncGeneric>d__N`1).
+    public static async System.Threading.Tasks.Task<T> AsyncGeneric<T>(T x)
+    {
+        await System.Threading.Tasks.Task.Yield();
+        return x;
+    }
+}
