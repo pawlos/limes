@@ -2,13 +2,13 @@
 
 **Status:** Design 2026-05-06. Triggered by CVE-2026-42348 (GHSA-w2jh-77fq-7gp8) in `OpenTelemetry.OpAmp.Client`, which our 2026-04-29 OTel scans missed because the analyzer cannot walk `async` source bodies.
 
-**One-liner:** Close two analyzer gaps surfaced by the 2026-04-29 OpenTelemetry scans — (A) async source bodies are stubs that hand off to a compiler-generated state machine, so naming an `async` method as a source produces an empty walk; (B) the `length = stream.Length < limit ? (int)stream.Length : limit` clamp idiom in `Shared/HttpClientHelpers.GetBufferLength` is not recognised, producing four false-positive `array_pool_rent` findings — then lock both fixes with a real-world OpAmp prefix/postfix fixture pair and rerun the OTel scans to confirm the false-positives are gone.
+**One-liner:** Close two analyzer gaps surfaced by the 2026-04-29 OpenTelemetry scans — (A) async source bodies are stubs that hand off to a compiler-generated state machine, so naming an `async` method as a source produces an empty walk; (B) the `length = stream.Length < limit ? (int)stream.Length : limit` clamp idiom in `Shared/HttpClientHelpers.GetBufferLength` is not recognised, producing five false-positive findings (3 in contrib: AWS, Azure, OneCollector; 2 in core: OTLP/HTTP, OTLP/gRPC) — then lock both fixes with a real-world OpAmp prefix/postfix fixture pair and rerun the OTel scans to confirm the false-positives are gone.
 
 ---
 
 ## Motivation
 
-The 2026-04-29 OTel contrib + core scans (see `docs/otelcontrib-phase2-scan-2026-04-29.md`, `docs/otelcore-scan-2026-04-29.md`) produced 0 confirmed vulnerabilities and 4 false-positives, all of the same shape: `array_pool_rent` inside `Shared/HttpClientHelpers.GetResponseBodyAsString`. The reports flagged the underlying analyzer limitation ("loop-guard sanitizer shapes not yet implemented — deferred to milestone-I").
+The 2026-04-29 OTel contrib + core scans (see `docs/otelcontrib-phase2-scan-2026-04-29.md`, `docs/otelcore-scan-2026-04-29.md`) produced 0 confirmed vulnerabilities and 5 false-positives (3 in contrib: AWS, Azure, OneCollector; 2 in core: OTLP/HTTP, OTLP/gRPC), all of the same shape: `array_pool_rent` (or `http_content_read` for OneCollector) inside `Shared/HttpClientHelpers.GetResponseBodyAsString`. The reports flagged the underlying analyzer limitation ("loop-guard sanitizer shapes not yet implemented — deferred to milestone-I").
 
 On 2026-05-06 GHSA-w2jh-77fq-7gp8 / CVE-2026-42348 was published against `OpenTelemetry.OpAmp.Client`: an unbounded `ReadAsByteArrayAsync` on an HTTP response body in `PlainHttpTransport.SendAsync`. A regression run today (see workspace `/tmp/otel-opamp-regression/`) showed:
 
@@ -26,7 +26,7 @@ This milestone fixes both the source-resolution bug and the loop-guard sanitizer
 4. **`MatchValueClamp` sanitizer (ternary-clamp diamond)** — new matcher in `tools/TaintAnalyzer/SanitizerShapes.cs` that recognises the `tainted < bounded ? tainted : bounded` IL diamond in both orientations and untaints the join slot.
 5. **`Math.Min`/`Math.Max`/`Math.Clamp` recognizer in `TaintWalker.HandleCall`** — when a tainted argument meets a constant/bounded argument, the return slot is untainted with provenance `clamped(<tainted>, <bound>)`.
 6. **OpAmp fixture pair** — `fixtures/otelcontrib-opamp-w2jh-{prefix,postfix}` containing only `rules.yaml` and `trace.yaml` (binaries materialized via `scripts/materialize-otelcontrib-opamp.sh`, gitignored under `artifacts/`).
-7. **Scan-validation rerun** — re-run the 2026-04-29 OTel contrib + core scans against the new analyzer; confirm the 4 known `HttpClientHelpers` false-positives become empty findings; document as addenda to the existing scan reports.
+7. **Scan-validation rerun** — re-run the 2026-04-29 OTel contrib + core scans against the new analyzer; confirm the 5 known `HttpClientHelpers` false-positives (3 contrib + 2 core) become empty findings; document as addenda to the existing scan reports.
 
 ## Non-goals
 
@@ -201,7 +201,7 @@ The source signature names the **user-facing** async method. `AsyncStateMachineR
 1. **All existing tests green.** Today's count is 195. New tests expected: ~10 (3 async-resolver + 8 sanitizer + 1 async-resolver end-to-end). Target: ~205+, all passing.
 2. **All existing fixtures pass `--compare` non-strict.** No regressions in `imagesharp-307{4,9}-{prefix,postfix}`, `otelcontrib-{55m9,vc24}-{prefix,postfix}`, `parquet-dotnet-738`, synthetics. The two milestone-H OTel pre-fix fixtures are the false-negative regression canaries — the new sanitizer must NOT untaint their genuinely unbounded reads.
 3. **New OpAmp pair passes `--compare` non-strict.** Both `otelcontrib-opamp-w2jh-prefix` (sink fires at line 51) and `-postfix` (empty findings).
-4. **Scan-validation rerun.** Re-run the analyzer against the prefix-already-cached binaries from the original 2026-04-29 OTel scans (AWS, Azure, OneCollector, OTLP/HTTP, OTLP/gRPC). The `array_pool_rent` `sanitizer_absence` findings inside `HttpClientHelpers.GetResponseBodyAsString` must become **empty findings**. Document as addenda to `docs/otelcontrib-phase2-scan-2026-04-29.md` and `docs/otelcore-scan-2026-04-29.md` with explicit before/after counts.
+4. **Scan-validation rerun.** Re-run the analyzer against the cached binaries from the original 2026-04-29 OTel scans (AWS, Azure, OneCollector, OTLP/HTTP, OTLP/gRPC — 5 cases). The `sanitizer_absence` findings inside `HttpClientHelpers.GetResponseBodyAsString` must all become **empty findings**. Document as addenda to `docs/otelcontrib-phase2-scan-2026-04-29.md` and `docs/otelcore-scan-2026-04-29.md` with explicit before/after counts.
 
 **Bonus (not blocking):**
 
