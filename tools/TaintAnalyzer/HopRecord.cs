@@ -42,6 +42,7 @@ public sealed record HopRecord
     public required string TaintedValueOut { get; init; }
     public ResolvedDispatch? Dispatch { get; init; }
     public string? Note { get; init; }
+    public string? ResolvedVia { get; init; }
 
     // Sanitizer-only
     public EstablishesBound? EstablishesBound { get; init; }

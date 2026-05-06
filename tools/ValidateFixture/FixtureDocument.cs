@@ -26,6 +26,8 @@ public sealed class PathNode
     [YamlMember(Alias = "tainted_value_out")] public string? TaintedValueOut { get; init; }
     [YamlMember(Alias = "dispatch")] public Dispatch? Dispatch { get; init; }
     [YamlMember(Alias = "note")] public string? Note { get; init; }
+    [YamlMember(Alias = "resolved_via", DefaultValuesHandling = DefaultValuesHandling.OmitNull)]
+    public string? ResolvedVia { get; init; }
     [YamlMember(Alias = "establishes_bound")] public EstablishesBound? EstablishesBound { get; init; }
     [YamlMember(Alias = "on_failure")]        public OnFailure?        OnFailure        { get; init; }
 

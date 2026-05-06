@@ -282,6 +282,7 @@ public static class TraceEmitter
             Transformation = h.Transformation,
             TaintedValueOut = h.TaintedValueOut,
             Note = h.Note,
+            ResolvedVia = h.ResolvedVia,
             Dispatch = dispatch,
             EstablishesBound = eb,
             OnFailure = onFail,
