@@ -1,0 +1,8 @@
+vuln_id: otelcontrib-aws-fp-fixed
+source_methods:
+  - signature: OpenTelemetry.Resources.AWS.ResourceDetectorUtils::SendOutRequest(System.String,System.Net.Http.HttpMethod,System.Nullable`1<System.Collections.Generic.KeyValuePair`2<System.String,System.String>>,System.Net.Http.HttpClientHandler,System.Threading.CancellationToken)
+    taint_from_external_returns:
+      - HttpClient::Send
+      - HttpClient::SendAsync
+      - HttpClient::GetStringAsync
+      - HttpClient::GetByteArrayAsync

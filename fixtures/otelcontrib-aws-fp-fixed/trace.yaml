@@ -1,0 +1,7 @@
+vuln_id: otelcontrib-aws-fp-fixed
+description: >
+  Locks the milestone-J elimination of the OpenTelemetry.Resources.AWS
+  array_pool_rent false-positive. Pre-milestone-J the analyzer reported
+  array_pool_rent at HttpClientHelpers.cs:170; the AppliedValueClamp summary
+  signal added in milestone-J lets HandleCall trust the GetBufferLength clamp
+  and suppresses the over-approximation. Analyzer produces zero documents.
