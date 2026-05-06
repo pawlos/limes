@@ -24,22 +24,32 @@ Rules used:
 
 See `docs/otelcontrib-phase2-scan-2026-04-29-addendum.md` for the full explanation.
 In summary: `MatchValueClamps` now correctly handles the `stream.Length < limit ?
-(int)stream.Length : limit` pattern inside `HttpClientHelpers.GetBufferLength`, and
-`HandleCall` trusts the callee's sanitized-return summary so the `array_pool_rent`
-sink no longer fires when `GetBufferLength` is called with tainted arguments.
+(int)stream.Length : limit` pattern inside `HttpClientHelpers.GetBufferLength` (clamp-arm
+recognition + pre-step untaint timing), but the `HandleCall` over-approximation change was
+reverted to preserve the GHSA-55m9 fixture. With the revert, `array_pool_rent` findings
+that require `HandleCall` to propagate a sanitized callee return still fire.
 
-## Results (delta vs 2026-04-29)
+## Results (post-revert, 2026-05-06)
 
-| Package | 2026-04-29 finding | 2026-05-06 finding |
-|---------|-------------------|--------------------|
-| `OpenTelemetry.Exporter.OpenTelemetryProtocol` (OTLP/HTTP) | `array_pool_rent` (false-positive in `HttpClientHelpers`) | **empty** (clamp recognised) |
-| `OpenTelemetry.Exporter.OpenTelemetryProtocol` (OTLP/gRPC) | `array_pool_rent` (false-positive in `HttpClientHelpers`) | **empty** (clamp recognised) |
+| Package | 2026-04-29 finding | 2026-05-06 finding (post-revert) |
+|---------|-------------------|----------------------------------|
+| `OpenTelemetry.Exporter.OpenTelemetryProtocol` (OTLP/HTTP) | `array_pool_rent` FP in `HttpClientHelpers` | **`array_pool_rent` still fires** — over-approximation in `HandleCall` |
+| `OpenTelemetry.Exporter.OpenTelemetryProtocol` (OTLP/gRPC) | `array_pool_rent` FP in `HttpClientHelpers` | **`array_pool_rent` still fires** — over-approximation in `HandleCall` |
 | `OpenTelemetry.Exporter.Zipkin` | no-sink (rules-validator gap with byref signature) | not re-scanned — Zipkin deferred (same limitation as original) |
+
+### Note on OTLP `array_pool_rent` persistence
+
+Both OTLP/HTTP and OTLP/gRPC findings persist because suppressing them requires `HandleCall`
+to trust the callee's sanitized-return summary (`calleeSummary.ReturnsTainted`) instead of the
+over-approximation (`bitmask != 0`). That change (commit a88b636 item 4) was reverted because
+it regressed the GHSA-55m9 milestone-H fixture. A context-aware fix that distinguishes
+sanitized-return paths from genuine untaint-propagation paths is deferred to a future milestone.
 
 ## Summary
 
-2 `array_pool_rent` false-positives → 0. The shared `HttpClientHelpers.GetBufferLength`
-clamp is now recognised by the extended `MatchValueClamps` matcher, and `HandleCall`
-correctly propagates the untainted return to the caller, suppressing the `array_pool_rent`
-sink. Zipkin remains deferred (rules-format validator limitation documented in the original
-report). No new vulnerabilities surfaced.
+Both `array_pool_rent` false-positives persist in the post-revert analyzer. The
+`MatchValueClamps` clamp-arm + timing improvements (items 1+2 from a88b636) are kept, but
+without item 4 (`HandleCall` callee-summary trust) the `array_pool_rent` caller sink still
+fires when any tainted argument is passed to `GetBufferLength`. The fix is deferred pending
+a non-regressing `HandleCall` solution. Zipkin remains deferred (rules-format validator
+limitation documented in the original report).

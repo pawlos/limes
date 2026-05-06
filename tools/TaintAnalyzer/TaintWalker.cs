@@ -727,38 +727,6 @@ public sealed class TaintWalker
                     break;
                 }
 
-            // Array element loads: ldelem.* / ldelem / ldelema
-            // If the array itself is tainted, element reads surface tainted data.
-            // Stack before: [array, index] — pop both, push element with array's taint.
-            case Code.Ldelem_Any:
-            case Code.Ldelem_I:
-            case Code.Ldelem_I1:
-            case Code.Ldelem_I2:
-            case Code.Ldelem_I4:
-            case Code.Ldelem_I8:
-            case Code.Ldelem_U1:
-            case Code.Ldelem_U2:
-            case Code.Ldelem_U4:
-            case Code.Ldelem_R4:
-            case Code.Ldelem_R8:
-            case Code.Ldelem_Ref:
-            case Code.Ldelema:
-                {
-                    var index = state.Stack.Depth > 0 ? state.Stack.Pop() : StackSlot.Untainted;
-                    var array = state.Stack.Depth > 0 ? state.Stack.Pop() : StackSlot.Untainted;
-                    if (array.Tainted)
-                    {
-                        var prov = $"{array.Provenance}[{index.Provenance}]";
-                        state.Stack.Push(StackSlot.TaintedWith(prov));
-                        EmitPropagatorHop(method, ins, "read_stream", array.Provenance, prov, null, hops, ref hopCounter);
-                    }
-                    else
-                    {
-                        state.Stack.Push(StackSlot.Untainted);
-                    }
-                    break;
-                }
-
             case Code.Ldflda:
                 {
                     // Load managed pointer to a field. Mirrors ldfld for taint purposes — the
@@ -998,15 +966,13 @@ public sealed class TaintWalker
         var expansionKey = $"{resolved.FullName}|{bitmask}|{BuildSeedKey(seedFields)}";
         bool alreadyExpanded = !expandedCallees.Add(expansionKey);
 
-        // Return-value taint propagation. For in-assembly callees we have a full body walk:
-        // trust calleeSummary.ReturnsTainted as the primary signal. If the callee's analysis
-        // says the return is not tainted (e.g. because a ternary-clamp sanitizer bounded the
-        // tainted value before the return), that result stands even when some args were tainted.
-        // For the receiver-slot we still apply a taint-propagation shortcut: any read on a tainted
-        // receiver (stream, object) surfaces tainted bytes — required for field-load chains.
+        // Return-value taint propagation: over-approximate — return is tainted when any tainted arg
+        // was passed OR the callee's summary says ReturnsTainted OR the receiver itself was tainted
+        // (any read on a tainted stream/object surfaces tainted bytes).
         bool callReturnIsTainted = !IsVoidReturn(callee)
-            && (calleeSummary.ReturnsTainted
-                || (hasThisOnStack && receiverSlot.Tainted && bitmask == 0));
+            && (bitmask != 0
+                || calleeSummary.ReturnsTainted
+                || (hasThisOnStack && receiverSlot.Tainted));
         if (receiverIsCallerThis && resolved.HasThis)
         {
             foreach (var fName in calleeSummary.NewlyTaintedThisFields)

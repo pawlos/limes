@@ -15,7 +15,7 @@ Rules files created in `/tmp/otel-scan/<DIR>/rules.yaml` for each package
 
 ## Changes in milestone-I that affect these results
 
-Three improvements landed together:
+Two improvements from milestone-I task 14 landed and were subsequently partially reverted:
 
 1. **`SanitizerShapes.MatchValueClamps`** — extended `ClassifyArmForClamp` to recognise
    `ldarg.X; callvirt get_Prop; [conv.*]` as a valid clamp arm (the real OTel code uses
@@ -27,35 +27,47 @@ Three improvements landed together:
    (as in `GetBufferLength`), the local variable receives the untainted value instead of
    the tainted one.
 
-3. **`HandleCall` return-taint signal** — for in-assembly callees the analyzer now trusts
-   `calleeSummary.ReturnsTainted` as the primary signal instead of the previous
-   over-approximation (`bitmask != 0`). This lets a properly-sanitized callee like
-   `GetBufferLength` (which has a clamp on its return path) propagate an untainted return
-   to the caller, preventing the `array_pool_rent` sink from firing on the caller's
-   `ArrayPool.Rent(length)` call.
+**Reverted in milestone-I Task 14 regression fix:**
 
-   A prerequisite for the over-approximation change: `ldelem.*` instructions are now
-   handled explicitly (propagate array taint to element), so methods like `ReadByte(byte[], int)`
-   correctly mark their return as tainted when the array argument is tainted.
+3. **`HandleCall` return-taint signal** — an earlier commit (a88b636) changed `HandleCall`
+   to trust `calleeSummary.ReturnsTainted` as the primary signal instead of the
+   over-approximation (`bitmask != 0`). This was reverted because it regressed the
+   otelcontrib-55m9-prefix milestone-H fixture (the GHSA-55m9 path relies on
+   over-approximation propagating taint through `Send → ReadAsStringAsync`). Without item 3,
+   a tainted argument to `GetBufferLength` still causes the `array_pool_rent` caller sink
+   to fire (over-approximation: any tainted arg → tainted return).
 
-## Results (delta vs 2026-04-29)
+## Results (post-revert, 2026-05-06)
 
-| Package | 2026-04-29 finding | 2026-05-06 finding |
-|---------|-------------------|--------------------|
-| `OpenTelemetry.Resources.AWS` | `array_pool_rent` (false-positive in `HttpClientHelpers`) | **empty** (clamp recognised; `GetBufferLength` returns untainted) |
-| `OpenTelemetry.Resources.Azure` | `array_pool_rent` (false-positive in `HttpClientHelpers`) | **empty** (clamp recognised; `GetBufferLength` returns untainted) |
-| `OpenTelemetry.Exporter.OneCollector` | `http_content_read` (false-positive in `HttpClientHelpers.TryGetResponseBodyAsString`) | **http_content_read still fires** (see note below) |
+| Package | 2026-04-29 finding | 2026-05-06 finding (post-revert) |
+|---------|-------------------|----------------------------------|
+| `OpenTelemetry.Resources.AWS` | `array_pool_rent` FP in `HttpClientHelpers` | **`array_pool_rent` still fires** — over-approximation propagates through `GetBufferLength` caller |
+| `OpenTelemetry.Resources.Azure` | `array_pool_rent` FP in `HttpClientHelpers` | **empty** — Azure path resolved by clamp-timing fix alone |
+| `OpenTelemetry.Exporter.OneCollector` | `http_content_read` FP in `HttpClientHelpers.TryGetResponseBodyAsString` | **`http_content_read` still fires** — pre-existing `MatchHttpRead` limitation |
 | `OpenTelemetry.Resources.Gcp` | no-sink | no-sink |
 | `OpenTelemetry.Resources.Container` | no-sink | no-sink |
 | `OpenTelemetry.Instrumentation.Http` | no-sink | no-sink |
 | `OpenTelemetry.Instrumentation.AWS` | no-sink | no-sink |
 
+### Note on AWS `array_pool_rent`
+
+The AWS FP persists because the over-approximation (`bitmask != 0 || calleeSummary.ReturnsTainted`)
+is required to avoid a worse regression (55m9 milestone-H fixture). The full fix requires a
+context-aware `HandleCall` that can distinguish sanitized-return callees from unsanitized ones
+without breaking the over-approximation for the 55m9 call chain — deferred to a future milestone.
+
+### Note on Azure (empty)
+
+The Azure package's `GetBufferLength` call chain is resolved by the clamp-timing fix alone
+(items 1+2). The property-getter arm recognition and pre-step join timing are sufficient to
+untaint the ternary-clamp result at the stloc join point inside the Azure DLL's version of
+`GetBufferLength`, so the return is computed as untainted before the array allocation.
+
 ### Note on OneCollector `http_content_read`
 
 The OneCollector FP is a **different sink type** (`http_content_read`, fired by `MatchHttpRead`
-on `ReadAsStreamAsync`) rather than `array_pool_rent`. The ternary-clamp fix targets
-`ArrayPool.Rent` allocations bounded by `GetBufferLength`; it does not suppress the
-`MatchHttpRead` unconditional sink that fires on any call to `HttpContent.ReadAsStreamAsync`.
+on `ReadAsStreamAsync`) rather than `array_pool_rent`. The ternary-clamp fix does not suppress
+the `MatchHttpRead` unconditional sink that fires on any call to `HttpContent.ReadAsStreamAsync`.
 
 The finding is the **same pre-existing false-positive** documented in the 2026-04-29 report:
 `HttpJsonPostTransport.Send` → `HttpClientHelpers.TryGetResponseBodyAsString` →
@@ -66,9 +78,10 @@ recognises bounded read loops — deferred to a future milestone.
 
 ## Summary
 
-3 false-positives examined; 2 fully resolved (`array_pool_rent` in AWS and Azure). The
-OneCollector `http_content_read` FP persists unchanged — it is a pre-existing limitation
-of `MatchHttpRead` firing unconditionally rather than a new regression from milestone-I.
+3 false-positives examined; 1 fully resolved (`array_pool_rent` in Azure). The AWS
+`array_pool_rent` FP and OneCollector `http_content_read` FP persist — both are pre-existing
+limitations requiring deferred work (context-aware `HandleCall` for AWS; bounded `MatchHttpRead`
+for OneCollector).
 
 The originally-disclosed CVEs (GHSA-55m9 / GHSA-vc24) remain confirmed-fixed on main;
 the milestone-H fixture pair `otelcontrib-{55m9,vc24}-{prefix,postfix}` continues to
