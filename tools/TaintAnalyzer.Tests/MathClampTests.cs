@@ -51,4 +51,29 @@ public class MathClampTests
 
         summary.ReturnsTainted.ShouldBeFalse();
     }
+
+    [Fact]
+    public void StreamLengthVsLimit_TaintedStreamLength_SetsAppliedValueClamp()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+        // Seed only `streamLength` (bit 0) tainted; the ternary clamp must fire on the
+        // joined value and untaint it. AppliedValueClamp must reflect that.
+        var summary = walker.WalkWithSeed(Find(ctx, "StreamLengthVsLimit"), taintedParamBitmask: 0b01, Array.Empty<string>());
+
+        summary.AppliedValueClamp.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void MathMin_TaintedAndConstant_DoesNotSetAppliedValueClamp()
+    {
+        // Math.Min recognizer in HandleCall is NOT a value-clamp shape — only the
+        // ternary diamond detected by SanitizerShapes.MatchValueClamps sets the flag.
+        // This control case confirms the flag stays false when no diamond exists.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+        var summary = walker.WalkWithSeed(Find(ctx, "MathMin_TaintedAndConstant"), taintedParamBitmask: 0b1, Array.Empty<string>());
+
+        summary.AppliedValueClamp.ShouldBeFalse();
+    }
 }
