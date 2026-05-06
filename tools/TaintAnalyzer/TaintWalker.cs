@@ -855,6 +855,18 @@ public sealed class TaintWalker
             // taint_from_external_returns: unconditionally taint returns from annotated methods.
             bool matchesTaintSource = MatchesTaintFromExternalReturn(callee);
 
+            // Math.Min/Max/Clamp clamp recognizer. When at least one argument is bounded (untainted
+            // constant/parameter/field), the result is bounded too; the call is a value-clamping
+            // sanitizer at the call-site, regardless of input taint count.
+            if (IsMathClampCall(callee) && argSlots.Any(s => !s.Tainted))
+            {
+                var taintedArgs = argSlots.Where(s => s.Tainted).Select(s => s.Provenance);
+                var boundArgs = argSlots.Where(s => !s.Tainted).Select(s => s.Provenance);
+                var prov = $"clamped({string.Join(",", taintedArgs)}; bound={string.Join(",", boundArgs)})";
+                state.Stack.Push(new StackSlot(false, prov));
+                return false;
+            }
+
             if (!IsVoidReturn(callee))
             {
                 if (anyTaintedInput || matchesTaintSource)
@@ -1018,6 +1030,12 @@ public sealed class TaintWalker
 
     private static bool IsVoidReturn(MethodReference mr)
         => mr.ReturnType.FullName == "System.Void";
+
+    private static bool IsMathClampCall(MethodReference callee)
+    {
+        if (callee.DeclaringType.FullName != "System.Math") return false;
+        return callee.Name is "Min" or "Max" or "Clamp";
+    }
 
     private static MethodDefinition? SafeResolveMethod(MethodReference mr)
     {
