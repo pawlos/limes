@@ -121,6 +121,14 @@ public sealed class TaintWalker
             .GroupBy(m => m.ComparisonIlOffset)
             .ToDictionary(g => g.Key, g => g.First());
 
+        // Pre-compute ternary-clamp matches keyed by JOIN IL offset. When the IL walker reaches
+        // the join, the symbolic stack contains the post-join value (already pushed by the loaded
+        // arm). If the comparison's two operands at ComparisonIlOffset were tainted vs bounded,
+        // replace the join slot with an untainted slot.
+        var clampMatchByJoinOffset = SanitizerShapes.MatchValueClamps(method)
+            .GroupBy(c => c.JoinIlOffset)
+            .ToDictionary(g => g.Key, g => g.First());
+
         foreach (var ins in method.Body.Instructions)
         {
             PushImplicitExceptionIfHandlerStart(method, ins, state);
@@ -157,7 +165,28 @@ public sealed class TaintWalker
                 });
             }
 
-            // Detect tainted-return BEFORE stepping `ret` (the step is a no-op anyway).
+            StepInstruction(method, ins, state, newlyTaintedFields, hops, ref hopCounter, ref reachedSink, expandedCallees);
+
+            if (clampMatchByJoinOffset.TryGetValue(ins.Offset, out var clamp))
+            {
+                // The arm just executed pushed an operand; if the join is exactly at the join point
+                // the top of the stack is the joined value. Untaint it iff one operand is tainted
+                // and the other is bounded.
+                if (state.Stack.Depth > 0)
+                {
+                    var top = state.Stack.Peek();
+                    if (top.Tainted)
+                    {
+                        state.Stack.Pop();
+                        var prov = $"clamped({clamp.TaintedOperandProvenance}; bound={clamp.BoundedOperandProvenance})";
+                        state.Stack.Push(new StackSlot(false, prov));
+                    }
+                }
+            }
+
+            // Detect tainted-return AFTER clamp untainting so ternary-clamp join slots that
+            // happen to coincide with `ret` (i.e. JoinIlOffset == ret offset) are already
+            // cleaned before we sample the stack. The step itself is a no-op for `ret`.
             if (ins.OpCode.Code == Code.Ret
                 && method.ReturnType.FullName != "System.Void"
                 && state.Stack.Depth > 0
@@ -165,8 +194,6 @@ public sealed class TaintWalker
             {
                 returnsTainted = true;
             }
-
-            StepInstruction(method, ins, state, newlyTaintedFields, hops, ref hopCounter, ref reachedSink, expandedCallees);
         }
 
         // Sanitizer-absence synthesis lives in TraceEmitter — it has the per-sink path context

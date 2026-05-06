@@ -285,6 +285,21 @@ public class SanitizerShapesTests
         matches.ShouldHaveSingleItem();
     }
 
+    [Fact]
+    public void TernaryClamp_StreamLengthVsLimit_WalkerUntaintsResult()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = ctx.AllMethods()
+            .First(md => md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.ClampFixtures"
+                      && md.Name == "StreamLengthVsLimit");
+
+        var walker = new TaintWalker(ctx);
+        // Seed only `streamLength` (bit 0) as tainted; `limit` (bit 1) is bounded.
+        var summary = walker.WalkWithSeed(m, taintedParamBitmask: 0b01, Array.Empty<string>());
+
+        summary.ReturnsTainted.ShouldBeFalse();
+    }
+
     private static Instruction FindConditionalBranch(MethodDefinition m)
         => m.Body.Instructions.First(i => IsConditionalBranch(i.OpCode));
 
