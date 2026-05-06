@@ -102,14 +102,33 @@ public static class Program
                     return 1;
                 }
 
-                // Seed: every non-receiver parameter tainted (source defines which params are attacker-controlled).
-                int bitmask = (1 << source.Parameters.Count) - 1;
-                var seedFields = entry.SeedThisFields ?? (IReadOnlyCollection<string>)Array.Empty<string>();
+                var resolution = AsyncStateMachineResolver.Resolve(source);
                 walker.TaintFromExternalReturns = entry.TaintFromExternalReturns
                     ?? (IReadOnlyList<string>)Array.Empty<string>();
-                var summary = walker.WalkWithSeed(source, bitmask, seedFields);
 
-                // Emit a `source` hop from the source method's first sequence point.
+                int bitmask;
+                IReadOnlyCollection<string> seedFields;
+                if (resolution.RedirectedFromAsync)
+                {
+                    // MoveNext takes no parameters; captured arguments live as `this`-fields whose names
+                    // match the original method's parameter names. Seed those fields as tainted.
+                    bitmask = 0;
+                    var smFieldNames = resolution.Method.DeclaringType.Fields
+                        .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+                    seedFields = source.Parameters
+                        .Select(p => p.Name)
+                        .Where(name => smFieldNames.Contains(name))
+                        .ToList();
+                }
+                else
+                {
+                    bitmask = (1 << source.Parameters.Count) - 1;
+                    seedFields = entry.SeedThisFields ?? (IReadOnlyCollection<string>)Array.Empty<string>();
+                }
+
+                var summary = walker.WalkWithSeed(resolution.Method, bitmask, seedFields);
+
+                // Source hop reflects the user-facing method (not MoveNext).
                 var sp = source.Body is null ? null : context.GetSequencePoint(source, source.Body.Instructions.First());
                 allHops.Add(new HopRecord
                 {
@@ -121,6 +140,7 @@ public static class Program
                     TaintedValueIn = source.Parameters.FirstOrDefault()?.Name ?? "arg0",
                     Transformation = "read_stream",
                     TaintedValueOut = source.Parameters.FirstOrDefault()?.Name ?? "arg0",
+                    ResolvedVia = resolution.RedirectedFromAsync ? "async_state_machine" : null,
                 });
                 allHops.AddRange(summary.Hops);
             }
