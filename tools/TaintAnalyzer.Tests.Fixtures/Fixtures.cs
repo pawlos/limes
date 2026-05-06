@@ -642,3 +642,32 @@ public static class AsyncSinkFixtures
         return await response.Content.ReadAsByteArrayAsync(token).ConfigureAwait(false);
     }
 }
+
+// Fixtures for MatchValueClamp tests. Each method produces a specific IL diamond/call
+// shape that the sanitizer matcher must recognise (or, for negative cases, must reject).
+public static class ClampFixtures
+{
+    // Orientation A — the canonical OTel HttpClientHelpers.GetBufferLength shape.
+    // C# emits this as `clt; brfalse LBL_K; ldarg.0; br LBL_join; LBL_K: ldarg.1; LBL_join:`
+    public static int TernaryClamp_LessThan(int tainted, int limit)
+        => tainted < limit ? tainted : limit;
+
+    // Orientation B — flipped condition, same semantics.
+    public static int TernaryClamp_GreaterThanOrEqual(int tainted, int limit)
+        => tainted >= limit ? limit : tainted;
+
+    // Negative — both operands tainted; the result is still bounded by the smaller of two
+    // attacker-controlled values, which we conservatively treat as still tainted.
+    public static int TernaryClamp_BothTainted(int x, int y) => x < y ? x : y;
+
+    // Mirrors the GetBufferLength inner branch: `(int)stream.Length < limit ? (int)stream.Length : limit`.
+    // We synthesise stream.Length via a parameter whose taint shape we control in the test.
+    public static int StreamLengthVsLimit(long streamLength, int limit)
+        => (int)streamLength < limit ? (int)streamLength : limit;
+
+    // Math.Min / Max / Clamp shapes for the HandleCall recognizer.
+    public static int MathMin_TaintedAndConstant(int tainted) => System.Math.Min(tainted, 4096);
+    public static int MathMin_TwoTainted(int x, int y) => System.Math.Min(x, y);
+    public static int MathMax_TaintedAndConstant(int tainted) => System.Math.Max(tainted, 0);
+    public static int MathClamp_TaintedWithConstantBounds(int tainted) => System.Math.Clamp(tainted, 0, 4096);
+}
