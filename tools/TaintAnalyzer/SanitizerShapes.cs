@@ -1042,13 +1042,24 @@ public static class SanitizerShapes
         while (cur is not null && cur.OpCode.Code == Code.Nop) cur = cur.Next;
         if (cur is null) return null;
 
-        // Single load instruction.
+        // Single load instruction (or property-getter chain: ldarg.X; call/callvirt get_Prop).
         if (!IsClampLoadInstruction(cur)) return null;
         var next = cur.Next;
         if (next is null) return null;
 
+        // Allow an optional property-getter call after a receiver load.
+        // e.g. `ldarg.0; callvirt get_Length` for `stream.Length` in a ternary.
+        if ((next.OpCode.Code is Code.Call or Code.Callvirt)
+            && next.Operand is MethodReference getterRef
+            && getterRef.Name.StartsWith("get_", StringComparison.Ordinal)
+            && getterRef.Parameters.Count == 0)
+        {
+            next = next.Next;
+            if (next is null) return null;
+        }
+
         // Allow an optional conv.* (widening/narrowing cast) between load and br.
-        // e.g. `ldarg.0; conv.i4; br.s LBL` for a long-to-int ternary.
+        // e.g. `ldarg.0; conv.i4; br.s LBL` or `ldarg.0; callvirt get_Length; conv.i4; br.s LBL`.
         if (IsConvInstruction(next))
         {
             next = next.Next;
@@ -1105,34 +1116,58 @@ public static class SanitizerShapes
 
     private static string? OperandProvenance(Instruction ins, MethodDefinition method)
     {
-        return ins.OpCode.Code switch
+        switch (ins.OpCode.Code)
         {
-            Code.Ldarg_0 => method.HasThis ? "this" : ParamName(method, 0),
-            Code.Ldarg_1 => ParamName(method, method.HasThis ? 0 : 1),
-            Code.Ldarg_2 => ParamName(method, method.HasThis ? 1 : 2),
-            Code.Ldarg_3 => ParamName(method, method.HasThis ? 2 : 3),
-            Code.Ldarg or Code.Ldarg_S when ins.Operand is ParameterDefinition pd => pd.Name,
-            Code.Ldloc_0 => $"loc{0}",
-            Code.Ldloc_1 => $"loc{1}",
-            Code.Ldloc_2 => $"loc{2}",
-            Code.Ldloc_3 => $"loc{3}",
-            Code.Ldloc or Code.Ldloc_S when ins.Operand is VariableDefinition vd
-                => $"loc{vd.Index}",
-            Code.Ldfld or Code.Ldsfld when ins.Operand is FieldReference fr => fr.Name,
-            Code.Ldc_I4_0 => "0",
-            Code.Ldc_I4_1 => "1",
-            Code.Ldc_I4_2 => "2",
-            Code.Ldc_I4_3 => "3",
-            Code.Ldc_I4_4 => "4",
-            Code.Ldc_I4_5 => "5",
-            Code.Ldc_I4_6 => "6",
-            Code.Ldc_I4_7 => "7",
-            Code.Ldc_I4_8 => "8",
-            Code.Ldc_I4_M1 => "-1",
-            Code.Ldc_I4 or Code.Ldc_I4_S => ins.Operand?.ToString(),
-            Code.Ldc_I8 => ins.Operand?.ToString(),
-            _ => null,
-        };
+            case Code.Ldarg_0: return method.HasThis ? "this" : ParamName(method, 0);
+            case Code.Ldarg_1: return ParamName(method, method.HasThis ? 0 : 1);
+            case Code.Ldarg_2: return ParamName(method, method.HasThis ? 1 : 2);
+            case Code.Ldarg_3: return ParamName(method, method.HasThis ? 2 : 3);
+            case Code.Ldarg:
+            case Code.Ldarg_S:
+                return ins.Operand is ParameterDefinition pd ? pd.Name : null;
+            case Code.Ldloc_0: return "loc0";
+            case Code.Ldloc_1: return "loc1";
+            case Code.Ldloc_2: return "loc2";
+            case Code.Ldloc_3: return "loc3";
+            case Code.Ldloc:
+            case Code.Ldloc_S:
+                return ins.Operand is VariableDefinition vd ? $"loc{vd.Index}" : null;
+            case Code.Ldfld:
+            case Code.Ldsfld:
+                return ins.Operand is FieldReference fr ? fr.Name : null;
+            case Code.Ldc_I4_0: return "0";
+            case Code.Ldc_I4_1: return "1";
+            case Code.Ldc_I4_2: return "2";
+            case Code.Ldc_I4_3: return "3";
+            case Code.Ldc_I4_4: return "4";
+            case Code.Ldc_I4_5: return "5";
+            case Code.Ldc_I4_6: return "6";
+            case Code.Ldc_I4_7: return "7";
+            case Code.Ldc_I4_8: return "8";
+            case Code.Ldc_I4_M1: return "-1";
+            case Code.Ldc_I4:
+            case Code.Ldc_I4_S: return ins.Operand?.ToString();
+            case Code.Ldc_I8: return ins.Operand?.ToString();
+            // Property-getter call: `ldarg.X; callvirt get_Prop` — synthesize "receiver.Property".
+            // Walk back through the receiver instruction to build a dotted name.
+            case Code.Call:
+            case Code.Callvirt:
+                if (ins.Operand is MethodReference mr
+                    && mr.Name.StartsWith("get_", StringComparison.Ordinal)
+                    && mr.Parameters.Count == 0)
+                {
+                    var propName = mr.Name.Substring(4);   // "get_Length" → "Length"
+                    var receiverIns = ins.Previous;
+                    if (receiverIns is not null)
+                    {
+                        var receiverProv = OperandProvenance(receiverIns, method);
+                        if (receiverProv is not null) return $"{receiverProv}.{propName}";
+                    }
+                    return propName;
+                }
+                return null;
+            default: return null;
+        }
     }
 
     private static string? ParamName(MethodDefinition m, int index)
