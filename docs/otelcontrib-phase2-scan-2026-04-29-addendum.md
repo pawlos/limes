@@ -37,24 +37,30 @@ Two improvements from milestone-I task 14 landed and were subsequently partially
    a tainted argument to `GetBufferLength` still causes the `array_pool_rent` caller sink
    to fire (over-approximation: any tainted arg → tainted return).
 
-## Results (post-revert, 2026-05-06)
+## Results (post-milestone-J, 2026-05-06)
 
-| Package | 2026-04-29 finding | 2026-05-06 finding (post-revert) |
+| Package | 2026-04-29 finding | 2026-05-06 finding (post-milestone-J) |
 |---------|-------------------|----------------------------------|
-| `OpenTelemetry.Resources.AWS` | `array_pool_rent` FP in `HttpClientHelpers` | **`array_pool_rent` still fires** — over-approximation propagates through `GetBufferLength` caller |
-| `OpenTelemetry.Resources.Azure` | `array_pool_rent` FP in `HttpClientHelpers` | **empty** — Azure path resolved by clamp-timing fix alone |
+| `OpenTelemetry.Resources.AWS` | `array_pool_rent` FP in `HttpClientHelpers` | **empty** — eliminated by milestone-J `AppliedValueClamp` |
+| `OpenTelemetry.Resources.Azure` | `array_pool_rent` FP in `HttpClientHelpers` | **empty** — already resolved by milestone-I clamp-timing fix |
 | `OpenTelemetry.Exporter.OneCollector` | `http_content_read` FP in `HttpClientHelpers.TryGetResponseBodyAsString` | **`http_content_read` still fires** — pre-existing `MatchHttpRead` limitation |
 | `OpenTelemetry.Resources.Gcp` | no-sink | no-sink |
 | `OpenTelemetry.Resources.Container` | no-sink | no-sink |
 | `OpenTelemetry.Instrumentation.Http` | no-sink | no-sink |
 | `OpenTelemetry.Instrumentation.AWS` | no-sink | no-sink |
 
-### Note on AWS `array_pool_rent`
+### Milestone-J update — AWS FP eliminated
 
-The AWS FP persists because the over-approximation (`bitmask != 0 || calleeSummary.ReturnsTainted`)
-is required to avoid a worse regression (55m9 milestone-H fixture). The full fix requires a
-context-aware `HandleCall` that can distinguish sanitized-return callees from unsanitized ones
-without breaking the over-approximation for the 55m9 call chain — deferred to a future milestone.
+Milestone-J added an `AppliedValueClamp` flag to `MethodSummary`, set when `MatchValueClamps`
+actually untaints a slot during a walk. `HandleCall`'s in-assembly branch now skips the
+`bitmask != 0` over-approximation when `AppliedValueClamp == true` on the callee summary —
+i.e. trusts that a clamp-bounded callee return is genuinely untainted. The 55m9 path is
+unaffected because `BuildRequestContent` doesn't fire a value-clamp (only a throw-shape
+sanitizer), so the over-approximation continues to load-bear there.
+
+The AWS FP elimination is locked in `fixtures/otelcontrib-aws-fp-fixed/` with
+ground-truth empty-trace expectation; if the AppliedValueClamp wiring or the
+`GetBufferLength` clamp matcher silently regresses, that fixture's `--compare` will fail.
 
 ### Note on Azure (empty)
 
@@ -78,10 +84,10 @@ recognises bounded read loops — deferred to a future milestone.
 
 ## Summary
 
-3 false-positives examined; 1 fully resolved (`array_pool_rent` in Azure). The AWS
-`array_pool_rent` FP and OneCollector `http_content_read` FP persist — both are pre-existing
-limitations requiring deferred work (context-aware `HandleCall` for AWS; bounded `MatchHttpRead`
-for OneCollector).
+3 false-positives examined; 2 fully resolved (`array_pool_rent` in AWS via milestone-J; Azure
+via milestone-I). OneCollector `http_content_read` FP persists — pre-existing limitation
+requiring bounded-`MatchHttpRead` work (deferred to a future milestone, P0 in the analyzer
+gap backlog).
 
 The originally-disclosed CVEs (GHSA-55m9 / GHSA-vc24) remain confirmed-fixed on main;
 the milestone-H fixture pair `otelcontrib-{55m9,vc24}-{prefix,postfix}` continues to

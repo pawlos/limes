@@ -20,36 +20,34 @@ Rules used:
 - `/tmp/otel-core-scan/rules-otlp-http.yaml` — `OtlpHttpExportClient::SendExportRequest`
 - `/tmp/otel-core-scan/rules-otlp-grpc.yaml` — `OtlpGrpcExportClient::SendExportRequest`
 
-## Changes in milestone-I that affect these results
+## Changes in milestone-I + milestone-J that affect these results
 
 See `docs/otelcontrib-phase2-scan-2026-04-29-addendum.md` for the full explanation.
-In summary: `MatchValueClamps` now correctly handles the `stream.Length < limit ?
-(int)stream.Length : limit` pattern inside `HttpClientHelpers.GetBufferLength` (clamp-arm
-recognition + pre-step untaint timing), but the `HandleCall` over-approximation change was
-reverted to preserve the GHSA-55m9 fixture. With the revert, `array_pool_rent` findings
-that require `HandleCall` to propagate a sanitized callee return still fire.
+In summary: milestone-I added clamp-arm recognition + pre-step untaint timing, and
+milestone-J added the `AppliedValueClamp` summary signal that lets `HandleCall` trust
+the callee's bounded-return result without over-approximating. The combined fix
+preserves the GHSA-55m9 fixture (which fires only throw-shape sanitisers, not value
+clamps) and eliminates the OTLP `array_pool_rent` FPs.
 
-## Results (post-revert, 2026-05-06)
+## Results (post-milestone-J, 2026-05-06)
 
-| Package | 2026-04-29 finding | 2026-05-06 finding (post-revert) |
+| Package | 2026-04-29 finding | 2026-05-06 finding (post-milestone-J) |
 |---------|-------------------|----------------------------------|
-| `OpenTelemetry.Exporter.OpenTelemetryProtocol` (OTLP/HTTP) | `array_pool_rent` FP in `HttpClientHelpers` | **`array_pool_rent` still fires** — over-approximation in `HandleCall` |
-| `OpenTelemetry.Exporter.OpenTelemetryProtocol` (OTLP/gRPC) | `array_pool_rent` FP in `HttpClientHelpers` | **`array_pool_rent` still fires** — over-approximation in `HandleCall` |
+| `OpenTelemetry.Exporter.OpenTelemetryProtocol` (OTLP/HTTP) | `array_pool_rent` FP in `HttpClientHelpers` | **empty** — eliminated by milestone-J `AppliedValueClamp` |
+| `OpenTelemetry.Exporter.OpenTelemetryProtocol` (OTLP/gRPC) | `array_pool_rent` FP in `HttpClientHelpers` | **empty** — eliminated by milestone-J `AppliedValueClamp` |
 | `OpenTelemetry.Exporter.Zipkin` | no-sink (rules-validator gap with byref signature) | not re-scanned — Zipkin deferred (same limitation as original) |
 
-### Note on OTLP `array_pool_rent` persistence
+### Milestone-J update — both OTLP FPs eliminated
 
-Both OTLP/HTTP and OTLP/gRPC findings persist because suppressing them requires `HandleCall`
-to trust the callee's sanitized-return summary (`calleeSummary.ReturnsTainted`) instead of the
-over-approximation (`bitmask != 0`). That change (commit a88b636 item 4) was reverted because
-it regressed the GHSA-55m9 milestone-H fixture. A context-aware fix that distinguishes
-sanitized-return paths from genuine untaint-propagation paths is deferred to a future milestone.
+The milestone-I revert was reversed by milestone-J's surgical fix: `MethodSummary` now
+carries an `AppliedValueClamp` flag set when `MatchValueClamps` actually untaints a slot.
+`HandleCall` skips the `bitmask != 0` over-approximation iff the callee's summary reports
+`AppliedValueClamp == true`, distinguishing "genuinely sanitized return" from "incidentally
+untainted return that the over-approximation needs to compensate for." The 55m9 path stays
+green because `BuildRequestContent` doesn't fire a value-clamp (only a throw-shape sanitizer);
+the OTLP path goes empty because `GetBufferLength` does fire a value-clamp.
 
 ## Summary
 
-Both `array_pool_rent` false-positives persist in the post-revert analyzer. The
-`MatchValueClamps` clamp-arm + timing improvements (items 1+2 from a88b636) are kept, but
-without item 4 (`HandleCall` callee-summary trust) the `array_pool_rent` caller sink still
-fires when any tainted argument is passed to `GetBufferLength`. The fix is deferred pending
-a non-regressing `HandleCall` solution. Zipkin remains deferred (rules-format validator
-limitation documented in the original report).
+Both `array_pool_rent` false-positives eliminated by milestone-J. Zipkin remains deferred
+(rules-format validator limitation documented in the original report).
