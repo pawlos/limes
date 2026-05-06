@@ -8,7 +8,7 @@ public class AsyncSourceWalkTests
         Path.Combine(AppContext.BaseDirectory, "Fixtures", "TaintAnalyzer.Tests.Fixtures.dll");
 
     [Fact]
-    public void AnalyzeAsyncSource_EmitsMatchHttpReadSink_AndMarksResolvedViaAsyncStateMachine()
+    public void AnalyzeAsyncSource_ResolvesAsyncStateMachine_AndEmitsMatchHttpReadSink()
     {
         using var ctx = AssemblyContext.Load(FixturePath);
 
