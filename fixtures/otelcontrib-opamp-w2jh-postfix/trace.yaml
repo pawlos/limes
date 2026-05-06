@@ -1,0 +1,9 @@
+vuln_id: otelcontrib-opamp-w2jh-postfix
+fix_commit: bf1fad4fa298ff451cda0efb0ee9c7a7eb46212a
+fix_pr: "https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/4116"
+description: >
+  Post-fix OpenTelemetry.OpAmp.Client: ReadAsByteArrayAsync replaced by
+  ReadBoundedResponseAsync which uses ReadAsStreamAsync + bounded Stream.ReadAsync
+  into an ArrayPool rented buffer sized by TransportConstants.MaxMessageSize
+  (128 KiB constant). The direct http_content_read sink is gone. Analyzer
+  produces no trace on the post-fix DLL (zero documents).
