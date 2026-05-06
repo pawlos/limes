@@ -1,0 +1,9 @@
+vuln_id: otelcontrib-opamp-w2jh
+source_methods:
+  - signature: OpenTelemetry.OpAmp.Client.Internal.Transport.Http.PlainHttpTransport::SendAsync(T,System.Threading.CancellationToken)
+    taint_from_external_returns:
+      - HttpClient::Send
+      - HttpClient::SendAsync
+      - HttpClient::PostAsync
+      - HttpClient::GetStringAsync
+      - HttpClient::GetByteArrayAsync
