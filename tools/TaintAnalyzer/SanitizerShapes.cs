@@ -17,6 +17,18 @@ public sealed class SanitizerMatch
     public required int ComparisonIlOffset { get; init; }        // IL offset of the conditional branch
 }
 
+public sealed class ClampMatch
+{
+    /// <summary>IL offset of the comparison/branch that opened the diamond.</summary>
+    public required int ComparisonIlOffset { get; init; }
+    /// <summary>IL offset of the join instruction (where both arms converge).</summary>
+    public required int JoinIlOffset { get; init; }
+    /// <summary>Provenance string identifying the originally-tainted operand (e.g. "arg0", "stream.Length").</summary>
+    public required string TaintedOperandProvenance { get; init; }
+    /// <summary>Provenance string identifying the bounded operand (e.g. "ldc.i4 4096", "limit").</summary>
+    public required string BoundedOperandProvenance { get; init; }
+}
+
 public static class SanitizerShapes
 {
     private const string DoesNotReturnFullName = "System.Diagnostics.CodeAnalysis.DoesNotReturnAttribute";
@@ -970,4 +982,159 @@ public static class SanitizerShapes
         }
         return $"{bound} {(offset >= 0 ? "+" : "-")} {Math.Abs(offset)}";
     }
+
+    /// <summary>
+    /// Detects the C# ternary-clamp idiom <c>tainted &lt;op&gt; bound ? tainted : bound</c>
+    /// (and the symmetric <c>tainted &lt;op&gt; bound ? bound : tainted</c> form) emitted as a
+    /// branch diamond. Both arms must be a single straight-line load followed by a
+    /// converging unconditional <c>br</c>. Returns one match per matching diamond in the
+    /// method body.
+    /// </summary>
+    public static IEnumerable<ClampMatch> MatchValueClamps(MethodDefinition method)
+    {
+        if (method.Body is null) yield break;
+
+        foreach (var br in method.Body.Instructions)
+        {
+            if (br.OpCode.FlowControl != FlowControl.Cond_Branch) continue;
+            if (br.OpCode.Code == Code.Switch) continue;
+
+            var fallthrough = br.Next;
+            var jumpTarget = br.Operand as Instruction;
+            if (fallthrough is null || jumpTarget is null) continue;
+
+            // Each arm: must be a single load instruction followed by an unconditional `br`
+            // (or, for the second arm, the join itself).
+            var armA = ClassifyArmForClamp(fallthrough);
+            if (armA is null) continue;
+
+            var armB = ClassifyArmForClamp(jumpTarget);
+            if (armB is null) continue;
+            if (armB.JoinAt != armA.JoinAt) continue;
+
+            // Pre-branch operands: walk back from `br`, skipping over conv.* widening/narrowing
+            // casts (e.g. `ldarg.0; conv.i4; ldarg.1; blt.s` for a long-to-int cast).
+            // We recover the underlying load instruction for provenance.
+            var prev1 = SkipConvBackward(br.Previous);   // operand B (top of stack)
+            var prev2 = SkipConvBackward(prev1?.Previous); // operand A (under)
+            if (prev1 is null || prev2 is null) continue;
+
+            var provA = OperandProvenance(prev2, method);
+            var provB = OperandProvenance(prev1, method);
+            if (provA is null || provB is null) continue;
+
+            yield return new ClampMatch
+            {
+                ComparisonIlOffset = br.Offset,
+                JoinIlOffset = armA.JoinAt,
+                TaintedOperandProvenance = provA,
+                BoundedOperandProvenance = provB,
+            };
+        }
+    }
+
+    private sealed record ClampArm(int JoinAt);
+
+    private static ClampArm? ClassifyArmForClamp(Instruction start)
+    {
+        var cur = start;
+        // Skip any leading nop emitted by Roslyn for sequence points.
+        while (cur is not null && cur.OpCode.Code == Code.Nop) cur = cur.Next;
+        if (cur is null) return null;
+
+        // Single load instruction.
+        if (!IsClampLoadInstruction(cur)) return null;
+        var next = cur.Next;
+        if (next is null) return null;
+
+        // Allow an optional conv.* (widening/narrowing cast) between load and br.
+        // e.g. `ldarg.0; conv.i4; br.s LBL` for a long-to-int ternary.
+        if (IsConvInstruction(next))
+        {
+            next = next.Next;
+            if (next is null) return null;
+        }
+
+        // Either: an unconditional `br`/`br.s`, or the next instruction IS the join.
+        if (next.OpCode.Code is Code.Br or Code.Br_S)
+        {
+            if (next.Operand is not Instruction join) return null;
+            return new ClampArm(join.Offset);
+        }
+        return new ClampArm(next.Offset);
+    }
+
+    /// <summary>
+    /// Skip backwards over a single conv.* instruction to recover the underlying load.
+    /// Returns <paramref name="ins"/> unchanged if it is not a conv instruction.
+    /// </summary>
+    private static Instruction? SkipConvBackward(Instruction? ins)
+    {
+        if (ins is null) return null;
+        if (IsConvInstruction(ins)) return ins.Previous;
+        return ins;
+    }
+
+    private static bool IsConvInstruction(Instruction ins) => ins.OpCode.Code switch
+    {
+        Code.Conv_I or Code.Conv_I1 or Code.Conv_I2 or Code.Conv_I4 or Code.Conv_I8
+            or Code.Conv_U or Code.Conv_U1 or Code.Conv_U2 or Code.Conv_U4 or Code.Conv_U8
+            or Code.Conv_R4 or Code.Conv_R8 or Code.Conv_R_Un
+            or Code.Conv_Ovf_I or Code.Conv_Ovf_I1 or Code.Conv_Ovf_I2 or Code.Conv_Ovf_I4
+            or Code.Conv_Ovf_I8 or Code.Conv_Ovf_U or Code.Conv_Ovf_U1 or Code.Conv_Ovf_U2
+            or Code.Conv_Ovf_U4 or Code.Conv_Ovf_U8
+            or Code.Conv_Ovf_I_Un or Code.Conv_Ovf_I1_Un or Code.Conv_Ovf_I2_Un
+            or Code.Conv_Ovf_I4_Un or Code.Conv_Ovf_I8_Un or Code.Conv_Ovf_U_Un
+            or Code.Conv_Ovf_U1_Un or Code.Conv_Ovf_U2_Un or Code.Conv_Ovf_U4_Un
+            or Code.Conv_Ovf_U8_Un => true,
+        _ => false,
+    };
+
+    private static bool IsClampLoadInstruction(Instruction ins) => ins.OpCode.Code switch
+    {
+        Code.Ldarg or Code.Ldarg_S or Code.Ldarg_0 or Code.Ldarg_1
+            or Code.Ldarg_2 or Code.Ldarg_3 => true,
+        Code.Ldloc or Code.Ldloc_S or Code.Ldloc_0 or Code.Ldloc_1
+            or Code.Ldloc_2 or Code.Ldloc_3 => true,
+        Code.Ldc_I4 or Code.Ldc_I4_S or Code.Ldc_I4_0 or Code.Ldc_I4_1 or Code.Ldc_I4_2
+            or Code.Ldc_I4_3 or Code.Ldc_I4_4 or Code.Ldc_I4_5 or Code.Ldc_I4_6
+            or Code.Ldc_I4_7 or Code.Ldc_I4_8 or Code.Ldc_I4_M1 => true,
+        Code.Ldc_I8 or Code.Ldfld or Code.Ldsfld => true,
+        _ => false,
+    };
+
+    private static string? OperandProvenance(Instruction ins, MethodDefinition method)
+    {
+        return ins.OpCode.Code switch
+        {
+            Code.Ldarg_0 => method.HasThis ? "this" : ParamName(method, 0),
+            Code.Ldarg_1 => ParamName(method, method.HasThis ? 0 : 1),
+            Code.Ldarg_2 => ParamName(method, method.HasThis ? 1 : 2),
+            Code.Ldarg_3 => ParamName(method, method.HasThis ? 2 : 3),
+            Code.Ldarg or Code.Ldarg_S when ins.Operand is ParameterDefinition pd => pd.Name,
+            Code.Ldloc_0 => $"loc{0}",
+            Code.Ldloc_1 => $"loc{1}",
+            Code.Ldloc_2 => $"loc{2}",
+            Code.Ldloc_3 => $"loc{3}",
+            Code.Ldloc or Code.Ldloc_S when ins.Operand is VariableDefinition vd
+                => $"loc{vd.Index}",
+            Code.Ldfld or Code.Ldsfld when ins.Operand is FieldReference fr => fr.Name,
+            Code.Ldc_I4_0 => "0",
+            Code.Ldc_I4_1 => "1",
+            Code.Ldc_I4_2 => "2",
+            Code.Ldc_I4_3 => "3",
+            Code.Ldc_I4_4 => "4",
+            Code.Ldc_I4_5 => "5",
+            Code.Ldc_I4_6 => "6",
+            Code.Ldc_I4_7 => "7",
+            Code.Ldc_I4_8 => "8",
+            Code.Ldc_I4_M1 => "-1",
+            Code.Ldc_I4 or Code.Ldc_I4_S => ins.Operand?.ToString(),
+            Code.Ldc_I8 => ins.Operand?.ToString(),
+            _ => null,
+        };
+    }
+
+    private static string? ParamName(MethodDefinition m, int index)
+        => index >= 0 && index < m.Parameters.Count ? m.Parameters[index].Name : null;
 }

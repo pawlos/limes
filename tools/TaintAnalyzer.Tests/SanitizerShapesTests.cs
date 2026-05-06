@@ -247,6 +247,44 @@ public class SanitizerShapesTests
         matches[0].ComparisonIlOffset.ShouldBeLessThan(matches[1].ComparisonIlOffset);
     }
 
+    // --- MatchValueClamps tests (Task 9) ---
+
+    [Fact]
+    public void TernaryClamp_OrientationA_LessThan_Matches()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = ctx.AllMethods()
+            .First(md => md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.ClampFixtures"
+                      && md.Name == "TernaryClamp_LessThan");
+
+        var matches = SanitizerShapes.MatchValueClamps(m).ToList();
+        matches.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public void TernaryClamp_OrientationB_GreaterThanOrEqual_Matches()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = ctx.AllMethods()
+            .First(md => md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.ClampFixtures"
+                      && md.Name == "TernaryClamp_GreaterThanOrEqual");
+
+        var matches = SanitizerShapes.MatchValueClamps(m).ToList();
+        matches.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public void TernaryClamp_StreamLengthVsLimit_Matches()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = ctx.AllMethods()
+            .First(md => md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.ClampFixtures"
+                      && md.Name == "StreamLengthVsLimit");
+
+        var matches = SanitizerShapes.MatchValueClamps(m).ToList();
+        matches.ShouldHaveSingleItem();
+    }
+
     private static Instruction FindConditionalBranch(MethodDefinition m)
         => m.Body.Instructions.First(i => IsConditionalBranch(i.OpCode));
 
