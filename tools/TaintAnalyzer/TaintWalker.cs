@@ -71,6 +71,7 @@ public sealed class TaintWalker
         Hops = Array.Empty<HopRecord>(),
         Absences = Array.Empty<EmittedSanitizerAbsence>(),
         ReachedSink = false,
+        AppliedValueClamp = false,
     };
 
     private static string BuildSeedKey(IReadOnlyCollection<string> taintedThisFields)
@@ -91,6 +92,7 @@ public sealed class TaintWalker
 
         var hops = new List<HopRecord>();
         bool reachedSink = false;
+        bool appliedValueClamp = false;
         bool returnsTainted = false;
         // Hop counter resets per method; Task 11 refines to aggregate hops across the call chain.
         int hopCounter = 0;
@@ -111,6 +113,7 @@ public sealed class TaintWalker
                 Hops = hops,
                 Absences = Array.Empty<EmittedSanitizerAbsence>(),
                 ReachedSink = false,
+                AppliedValueClamp = false,
             };
         }
 
@@ -183,6 +186,7 @@ public sealed class TaintWalker
                         state.Stack.Pop();
                         var prov = $"clamped({clamp.TaintedOperandProvenance}; bound={clamp.BoundedOperandProvenance})";
                         state.Stack.Push(new StackSlot(false, prov));
+                        appliedValueClamp = true;
                     }
                 }
             }
@@ -212,6 +216,7 @@ public sealed class TaintWalker
             Hops = hops,
             Absences = Array.Empty<EmittedSanitizerAbsence>(),
             ReachedSink = reachedSink,
+            AppliedValueClamp = appliedValueClamp,
         };
     }
 
