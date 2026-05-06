@@ -1,0 +1,51 @@
+vuln_id: otelcontrib-opamp-w2jh
+source:
+  method: OpenTelemetry.OpAmp.Client.Internal.Transport.Http.PlainHttpTransport.SendAsync
+  file: ''
+  line: 0
+  role: source
+  tainted_value_in: message
+  transformation: read_stream
+  tainted_value_out: message
+  resolved_via: async_state_machine
+  kind: decoder_entry
+sink:
+  method: OpenTelemetry.OpAmp.Client.Internal.Transport.Http.PlainHttpTransport/<SendAsync>d__7`1.MoveNext
+  file: PlainHttpTransport.cs
+  line: 51
+  role: sink
+  tainted_value_in: <response>5__3.Content
+  transformation: identity
+  tainted_value_out: <response>5__3.Content
+  kind: allocation
+  api: http_content_read
+  size_expression: <response>5__3.Content
+path:
+- hop: 0
+  method: OpenTelemetry.OpAmp.Client.Internal.Transport.Http.PlainHttpTransport/<SendAsync>d__7`1.MoveNext
+  file: PlainHttpTransport.cs
+  line: 45
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <>u__1
+- hop: 1
+  method: OpenTelemetry.OpAmp.Client.Internal.Transport.Http.PlainHttpTransport/<SendAsync>d__7`1.MoveNext
+  file: PlainHttpTransport.cs
+  line: 49
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <response>5__3
+- hop: 2
+  method: OpenTelemetry.OpAmp.Client.Internal.Transport.Http.PlainHttpTransport/<SendAsync>d__7`1.MoveNext
+  file: PlainHttpTransport.cs
+  line: 51
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <response>5__3
+sanitizer_absence:
+- location: PlainHttpTransport.cs:49
+  expected_check: <response>5__3.Content (via <response>5__3) must be bounded before reaching http_content_read at PlainHttpTransport.cs:51
+  tainted_value: <response>5__3.Content (via <response>5__3)
