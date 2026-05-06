@@ -627,3 +627,18 @@ public static class AsyncSourceFixtures
         return x;
     }
 }
+
+public static class AsyncSinkFixtures
+{
+    // An async method that posts to an HttpClient and reads the response body unbounded.
+    // Mirrors the OpAmp PlainHttpTransport.SendAsync pre-fix shape exactly enough to drive
+    // the analyzer's async-source resolution + MatchHttpRead sink end-to-end.
+    public static async System.Threading.Tasks.Task<byte[]> AsyncReadResponse(
+        System.Net.Http.HttpClient client, byte[] body, System.Threading.CancellationToken token)
+    {
+        using var content = new System.Net.Http.ByteArrayContent(body);
+        var response = await client.PostAsync("https://example.invalid/", content, token).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync(token).ConfigureAwait(false);
+    }
+}
