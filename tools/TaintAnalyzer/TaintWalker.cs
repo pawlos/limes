@@ -973,11 +973,15 @@ public sealed class TaintWalker
 
         // Return-value taint propagation: over-approximate — return is tainted when any tainted arg
         // was passed OR the callee's summary says ReturnsTainted OR the receiver itself was tainted
-        // (any read on a tainted stream/object surfaces tainted bytes).
+        // (any read on a tainted stream/object surfaces tainted bytes). The bitmask over-
+        // approximation is suppressed when the callee actively bounded its return via a value
+        // clamp — see milestone-J spec for the rationale (distinguishes value-bounding from
+        // incidental untainting; preserves the load-bearing over-approximation for sibling-value
+        // taint propagation that milestone-H 55m9 depends on).
         bool callReturnIsTainted = !IsVoidReturn(callee)
-            && (bitmask != 0
-                || calleeSummary.ReturnsTainted
-                || (hasThisOnStack && receiverSlot.Tainted));
+            && (calleeSummary.ReturnsTainted
+                || (hasThisOnStack && receiverSlot.Tainted)
+                || (bitmask != 0 && !calleeSummary.AppliedValueClamp));
         if (receiverIsCallerThis && resolved.HasThis)
         {
             foreach (var fName in calleeSummary.NewlyTaintedThisFields)
