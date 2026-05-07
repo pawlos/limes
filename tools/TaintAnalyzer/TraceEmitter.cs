@@ -452,8 +452,10 @@ public static class TraceEmitter
         List<int> sinkIndices,
         List<int> sourceIndices)
     {
-        // Group sinks by path-prefix fingerprint.
-        var groups = new Dictionary<(string, string, string), List<int>>();
+        // Group sinks by (path-prefix fingerprint, SinkKind) — sinks of different kinds
+        // represent different vulnerability classes (e.g. Allocation vs SpanAccess) and must
+        // never compete with each other; dedup only applies within the same vulnerability class.
+        var groups = new Dictionary<(string, string, string, SinkKind?), List<int>>();
         var orphans = new List<int>(); // sinks with no preceding source
 
         foreach (int sinkIdx in sinkIndices)
@@ -461,8 +463,9 @@ public static class TraceEmitter
             int sourceIdx = FindPrecedingSourceIndex(sourceIndices, sinkIdx);
             if (sourceIdx < 0) { orphans.Add(sinkIdx); continue; }
             var fp = ComputeFingerprint(hops, sourceIdx, sinkIdx);
-            if (!groups.TryGetValue(fp, out var group))
-                groups[fp] = group = new List<int>();
+            var key = (fp.Item1, fp.Item2, fp.Item3, hops[sinkIdx].SinkKind);
+            if (!groups.TryGetValue(key, out var group))
+                groups[key] = group = new List<int>();
             group.Add(sinkIdx);
         }
 
