@@ -93,6 +93,8 @@ public sealed class RulesDocument
     // Signature form: "Namespace.Type::Method(Param1,Param2,...)" — no spaces, non-empty declaring type
     // and method name, balanced parens. Full Cecil-FullName compatibility (generic arity, grave accents)
     // is handled implicitly by Cecil's string comparison at lookup time — we only enforce the surface shape.
+    // `in T` parameters are written as "T&" (plain byref) — BuildShortSignature strips the
+    // " modreq(InAttribute)" suffix that Cecil adds, so no spaces appear in the lookup key.
     private static void ValidateSignatureShape(string sig)
     {
         if (sig.Contains(' '))

@@ -1,3 +1,4 @@
+using System.Linq;
 using Shouldly;
 using TaintAnalyzer;
 
@@ -93,5 +94,42 @@ public class AssemblyContextTests
         {
             Directory.Delete(tmpDir, true);
         }
+    }
+
+    [Fact]
+    public void FindMethod_InParamByRef_StripsModreqFromShortSignature()
+    {
+        // `in int` compiles to "System.Int32& modreq(System.Runtime.InteropServices.InAttribute)".
+        // BuildShortSignature must strip the modifier so the user writes "System.Int32&" in
+        // rules.yaml (no spaces, no Cecil-internal knowledge required).
+        using var ctx = AssemblyContext.Load(FixturePath);
+
+        var m = ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.InParamFixtures::SumByRef(System.Int32&,System.Int32&)");
+
+        m.ShouldNotBeNull("in-param method must be findable using plain T& without modreq");
+        m!.Name.ShouldBe("SumByRef");
+    }
+
+    [Fact]
+    public void FindMethod_InParamReferenceType_StripsModreqFromShortSignature()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+
+        var m = ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.InParamFixtures::StringLength(System.String&)");
+
+        m.ShouldNotBeNull();
+        m!.Name.ShouldBe("StringLength");
+    }
+
+    [Fact]
+    public void AllSignatures_ContainsNoSpaces()
+    {
+        // Guard: no short signature in the lookup table may contain a space.
+        // If any modreq slips through, rules.yaml validation will reject entries that
+        // try to target those methods.
+        using var ctx = AssemblyContext.Load(FixturePath);
+
+        var withSpaces = ctx.AllSignatures().Where(s => s.Contains(' ')).ToList();
+        withSpaces.ShouldBeEmpty("short signatures must not contain spaces (modreq not stripped?)");
     }
 }

@@ -117,8 +117,17 @@ public sealed class AssemblyContext : IDisposable
         var ps = new List<string>(m.Parameters.Count);
         foreach (var p in m.Parameters)
         {
-            ps.Add(p.ParameterType.FullName);
+            ps.Add(StripModreq(p.ParameterType.FullName));
         }
         return $"{m.DeclaringType.FullName}::{m.Name}({string.Join(",", ps)})";
+    }
+
+    // Cecil encodes `in T` parameters as "T& modreq(System.Runtime.InteropServices.InAttribute)"
+    // — a required custom modifier that embeds a space into the FullName. Strip it so the
+    // short-signature key is space-free and writable in rules.yaml as plain "T&".
+    private static string StripModreq(string typeName)
+    {
+        int idx = typeName.IndexOf(" modreq(", StringComparison.Ordinal);
+        return idx >= 0 ? typeName[..idx] : typeName;
     }
 }

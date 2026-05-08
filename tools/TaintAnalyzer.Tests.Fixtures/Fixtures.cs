@@ -735,3 +735,15 @@ public static class ThrowShapeCalleeFixtures
         return new byte[size];
     }
 }
+
+// Milestone-N fixtures — in-parameter (modreq) short-signature lookup.
+// Cecil encodes `in T` as "T& modreq(System.Runtime.InteropServices.InAttribute)".
+// BuildShortSignature must strip the modifier so FindMethod accepts "T&" from rules.yaml.
+public static class InParamFixtures
+{
+    // Simple value-type `in` parameters — Cecil emits modreq for each.
+    public static int SumByRef(in int a, in int b) => a + b;
+
+    // Reference-type `in` parameter — same modreq encoding.
+    public static int StringLength(in string s) => s.Length;
+}
