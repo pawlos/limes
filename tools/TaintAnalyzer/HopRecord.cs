@@ -84,4 +84,5 @@ public sealed class MethodSummary
     public required IReadOnlyList<EmittedSanitizerAbsence> Absences { get; init; }
     public required bool ReachedSink { get; init; }
     public required bool AppliedValueClamp { get; init; }
+    public required bool AppliedThrowShapeSanitiser { get; init; }
 }

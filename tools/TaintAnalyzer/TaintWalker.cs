@@ -72,6 +72,7 @@ public sealed class TaintWalker
         Absences = Array.Empty<EmittedSanitizerAbsence>(),
         ReachedSink = false,
         AppliedValueClamp = false,
+        AppliedThrowShapeSanitiser = false,
     };
 
     private static string BuildSeedKey(IReadOnlyCollection<string> taintedThisFields)
@@ -93,6 +94,7 @@ public sealed class TaintWalker
         var hops = new List<HopRecord>();
         bool reachedSink = false;
         bool appliedValueClamp = false;
+        bool appliedThrowShapeSanitiser = false;
         bool returnsTainted = false;
         // Hop counter resets per method; Task 11 refines to aggregate hops across the call chain.
         int hopCounter = 0;
@@ -114,6 +116,7 @@ public sealed class TaintWalker
                 Absences = Array.Empty<EmittedSanitizerAbsence>(),
                 ReachedSink = false,
                 AppliedValueClamp = false,
+                AppliedThrowShapeSanitiser = false,
             };
         }
 
@@ -166,6 +169,11 @@ public sealed class TaintWalker
                         ClosureBoundary = false,
                     },
                 });
+                if (sanitizerMatch.OnFailure.Kind == FailureKind.Throw
+                    && ThrowShapeSanitisesATaintedParam(sanitizerMatch, method, state))
+                {
+                    appliedThrowShapeSanitiser = true;
+                }
             }
 
             // Apply ternary-clamp untainting BEFORE StepInstruction so that store instructions
@@ -217,6 +225,7 @@ public sealed class TaintWalker
             Absences = Array.Empty<EmittedSanitizerAbsence>(),
             ReachedSink = reachedSink,
             AppliedValueClamp = appliedValueClamp,
+            AppliedThrowShapeSanitiser = appliedThrowShapeSanitiser,
         };
     }
 
@@ -981,7 +990,7 @@ public sealed class TaintWalker
         bool callReturnIsTainted = !IsVoidReturn(callee)
             && (calleeSummary.ReturnsTainted
                 || (hasThisOnStack && receiverSlot.Tainted)
-                || (bitmask != 0 && !calleeSummary.AppliedValueClamp));
+                || (bitmask != 0 && !calleeSummary.AppliedValueClamp && !calleeSummary.AppliedThrowShapeSanitiser));
         if (receiverIsCallerThis && resolved.HasThis)
         {
             foreach (var fName in calleeSummary.NewlyTaintedThisFields)
@@ -1002,9 +1011,10 @@ public sealed class TaintWalker
         }
 
         // Buffer-fill semantics: any tainted-flowing call may write into byref / Span / array args.
-        // Mirror the conservative model from the external branch — we don't track per-method
-        // mutation summaries, so over-approximate.
-        TaintBufferLikeArgsFromCall(callerMethod, ins, callee, anyTaintedInput, state);
+        // Suppressed when the callee summary confirms a throw-shape sanitiser fired on a tainted
+        // parameter — the callee throws before writing tainted data into any byref output.
+        if (!calleeSummary.AppliedThrowShapeSanitiser)
+            TaintBufferLikeArgsFromCall(callerMethod, ins, callee, anyTaintedInput, state);
 
         // Emit a propagator hop for the call boundary if any taint flowed through (return or this-field).
         if (callReturnIsTainted || calleeSummary.NewlyTaintedThisFields.Count > 0 || calleeSummary.ReachedSink)
@@ -1182,6 +1192,26 @@ public sealed class TaintWalker
     //
     // Conservative scope: only handles ldloc.* / ldloca.* / ldarg.* / ldarga.* arg-pushes.
     // Multi-instruction arg expressions (e.g., `obj.Field` as an arg) are skipped — the corresponding
+    // Returns true when a throw-shape sanitiser bounds a value that is currently tainted in the
+    // callee's arg state. The bound target is matched against parameter names (exact or as a
+    // dotted-field-chain prefix such as "header.Length" matching param "header"), so local
+    // variables and unrelated fields don't trigger the flag.
+    private static bool ThrowShapeSanitisesATaintedParam(
+        SanitizerMatch sanitizer, MethodDefinition method, TaintState state)
+    {
+        var target = sanitizer.EstablishesBound.Target;
+        int argOffset = method.HasThis ? 1 : 0;
+        for (int i = 0; i < method.Parameters.Count; i++)
+        {
+            var paramName = method.Parameters[i].Name;
+            if (target != paramName && !target.StartsWith(paramName + ".", StringComparison.Ordinal))
+                continue;
+            if (state.Args.TryGetValue(i + argOffset, out var slot) && slot.Tainted)
+                return true;
+        }
+        return false;
+    }
+
     // arg slot stays as-is. Adequate for the #3074 chain where buffers come from `stackalloc` stored
     // to a local and then pushed via `ldloc <buffer>`.
     private static void TaintBufferLikeArgsFromCall(

@@ -671,3 +671,54 @@ public static class ClampFixtures
     public static int MathMax_TaintedAndConstant(int tainted) => System.Math.Max(tainted, 0);
     public static int MathClamp_TaintedWithConstantBounds(int tainted) => System.Math.Clamp(tainted, 0, 4096);
 }
+
+// Fixtures for AppliedThrowShapeSanitiser: callees that validate a tainted param via throw
+// before (or without) using it, so the caller can skip byref taint propagation.
+public static class ThrowShapeCalleeFixtures
+{
+    // Callee: validates `length` via throw before returning it.
+    // When walked with bit-0 tainted, AppliedThrowShapeSanitiser must be true.
+    public static int ThrowValidatesParam(int length)
+    {
+        if (length > 1000)
+            ThrowHelpers.ThrowOutOfRange(nameof(length));
+        return length;
+    }
+
+    // Callee: validates `source` via throw, then writes to out-param.
+    // Throw fires BEFORE the assignment — fixed shape (analogous to NBMP 1.1.62).
+    private static int ThrowThenAssign(int source, out int dest)
+    {
+        if (source > 1000)
+            ThrowHelpers.ThrowOutOfRange(nameof(source));
+        dest = source;
+        return 0;
+    }
+
+    // Callee: return-early (NOT throw) on invalid input, then writes to out-param.
+    // AppliedThrowShapeSanitiser must be false (ReturnEarly, not Throw).
+    private static int ReturnEarlyThenAssign(int source, out int dest)
+    {
+        if (source > 1000)
+        {
+            dest = 0;
+            return -1;
+        }
+        dest = source;
+        return 0;
+    }
+
+    // Caller via throw-shape callee: sink must NOT fire when AppliedThrowShapeSanitiser suppresses byref.
+    public static byte[] AllocViaThrowValidatedOutParam(int n)
+    {
+        ThrowThenAssign(n, out int size);
+        return new byte[size];
+    }
+
+    // Caller via return-early callee: sink MUST fire (byref propagation not suppressed).
+    public static byte[] AllocViaReturnEarlyOutParam(int n)
+    {
+        ReturnEarlyThenAssign(n, out int size);
+        return new byte[size];
+    }
+}
