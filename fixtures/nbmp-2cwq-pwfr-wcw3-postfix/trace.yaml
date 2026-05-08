@@ -1,0 +1,16 @@
+vuln_id: nbmp-2cwq-pwfr-wcw3-postfix
+fix_commit: 7d1eb319cfabe7280e70699946c9a48579fa2f30
+fix_pr: https://github.com/AArnott/Nerdbank.MessagePack/pull/941
+description: >
+  Locks the milestone-O recognition of the multi-way-OR throw-shape in
+  Nerdbank.MessagePack 1.1.62. The fix added a size-validation guard in
+  MessagePackPrimitives.TryRead that throws MessagePackSerializationException
+  when header.Length ∉ {4, 8, 12}. Roslyn lowers this as Shape C: a beq/bne
+  OR-chain sets a boolean local V_1, then brtrue on V_1 with the throw block
+  on the fall-through path. TryResolveEffectiveComparison now recognises the
+  interposed true-arm (ldc.i4.1; stloc.N; br.s) between the false-block
+  ldc.i4.0 and the bne.un.s comparison, and correctly sets
+  AppliedThrowShapeSanitiser on the MessagePackPrimitives.TryRead summary.
+  HandleCall suppresses byref propagation for the tokenSize out-param, so the
+  stackalloc in SlowPath receives a clean size. Analyzer produces zero
+  documents.

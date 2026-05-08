@@ -734,6 +734,34 @@ public static class ThrowShapeCalleeFixtures
         ReturnEarlyThenAssign(n, out int size);
         return new byte[size];
     }
+
+    // Multi-way OR (Shape C): `size` is a local assigned directly from parameter `n`.
+    // Debug-mode Roslyn lowers `if (size==4||size==8||size==12)` as three beq/bne instructions
+    // writing a boolean local, then a single brtrue. The bound target is the local, not the param;
+    // ThrowShapeSanitisesATaintedParam must trace it back to `n` via the last stloc.
+    public static int MultiWayOrThrow_LocalFromParam(int n)
+    {
+        int size = n;
+        if (size == 4 || size == 8 || size == 12)
+            return size;
+        throw new ArgumentException("bad size");
+    }
+
+    // Callee: validates via multi-way-OR throw shape, writes to out-param.
+    private static void MultiWayOrThrowThenWriteOut(int source, out int dest)
+    {
+        int size = source;
+        if (size == 4 || size == 8 || size == 12) { dest = size; return; }
+        throw new ArgumentException("bad size");
+    }
+
+    // End-to-end test: callee's throw-shape on tainted param suppresses byref propagation,
+    // so the caller's allocation from the out-param must NOT fire the sink.
+    public static int[] AllocViaMultiWayOrValidatedOutParam(int n)
+    {
+        MultiWayOrThrowThenWriteOut(n, out int size);
+        return new int[size];
+    }
 }
 
 // Milestone-N fixtures — in-parameter (modreq) short-signature lookup.

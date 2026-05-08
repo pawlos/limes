@@ -1,0 +1,3 @@
+vuln_id: nbmp-2cwq-pwfr-wcw3
+source_methods:
+  - Nerdbank.MessagePack.MessagePackStreamingReader::TryRead(Nerdbank.MessagePack.ExtensionHeader,System.DateTime&)

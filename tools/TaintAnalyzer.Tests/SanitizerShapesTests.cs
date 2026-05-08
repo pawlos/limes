@@ -247,6 +247,28 @@ public class SanitizerShapesTests
         matches[0].ComparisonIlOffset.ShouldBeLessThan(matches[1].ComparisonIlOffset);
     }
 
+    [Fact]
+    public void MatchCompareAndThrow_MultiWayOrShape_ExtractsBoundFromLastComparison()
+    {
+        // Shape C: `if (size == 4 || size == 8 || size == 12) return size; throw;`
+        // Roslyn debug-mode lowers this via three beq/bne writing a boolean local, then a single
+        // brtrue. TryResolveEffectiveComparison must recognise the boolean-local pattern (Shape C)
+        // and extract the bound from the last comparison in the chain.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = ctx.AllMethods().First(md =>
+            md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.ThrowShapeCalleeFixtures"
+            && md.Name == "MultiWayOrThrow_LocalFromParam");
+
+        var match = SanitizerShapes.MatchCompareAndThrow(m);
+
+        match.ShouldNotBeNull("Shape C must produce a throw-sanitizer match");
+        match!.OnFailure.Kind.ShouldBe(FailureKind.Throw);
+        // Bound target is the local variable holding the OR-chain result; relation and value
+        // come from the last comparison (size != 12 → bne.un.s → false side).
+        match.EstablishesBound.Relation.ShouldBe("==");
+        match.EstablishesBound.UpperBound.ShouldBe("12");
+    }
+
     // --- MatchValueClamps tests (Task 9) ---
 
     [Fact]

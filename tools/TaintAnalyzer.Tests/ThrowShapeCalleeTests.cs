@@ -80,4 +80,41 @@ public class ThrowShapeCalleeTests
 
         summary.ReachedSink.ShouldBeTrue();
     }
+
+    [Fact]
+    public void MultiWayOrThrow_TaintedParam_SetsAppliedThrowShapeSanitiser()
+    {
+        // Shape C: the bound target is a local variable (`size`) assigned from the tainted
+        // parameter `n`. ThrowShapeSanitisesATaintedParam must trace the local back to the
+        // parameter via the last stloc assignment.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+        var summary = walker.WalkWithSeed(Find(ctx, "MultiWayOrThrow_LocalFromParam"), taintedParamBitmask: 0b1, Array.Empty<string>());
+
+        summary.AppliedThrowShapeSanitiser.ShouldBeTrue(
+            "multi-way-OR throw shape must recognise local←param assignment and set the flag");
+    }
+
+    [Fact]
+    public void MultiWayOrThrow_UntaintedParam_DoesNotSetFlag()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+        var summary = walker.WalkWithSeed(Find(ctx, "MultiWayOrThrow_LocalFromParam"), taintedParamBitmask: 0b0, Array.Empty<string>());
+
+        summary.AppliedThrowShapeSanitiser.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void AllocViaMultiWayOrValidatedParam_TaintedInput_SinkDoesNotFire()
+    {
+        // The allocation guard (`if (size ∈ {4,8,12}) return new int[size]; else throw`)
+        // is itself a throw-shape sanitiser on the tainted param, so the sink must NOT fire.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+        var summary = walker.WalkWithSeed(Find(ctx, "AllocViaMultiWayOrValidatedOutParam"), taintedParamBitmask: 0b1, Array.Empty<string>());
+
+        summary.ReachedSink.ShouldBeFalse(
+            "multi-way-OR inline throw-guard must suppress the allocation sink");
+    }
 }

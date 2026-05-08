@@ -1194,23 +1194,82 @@ public sealed class TaintWalker
     // Multi-instruction arg expressions (e.g., `obj.Field` as an arg) are skipped — the corresponding
     // Returns true when a throw-shape sanitiser bounds a value that is currently tainted in the
     // callee's arg state. The bound target is matched against parameter names (exact or as a
-    // dotted-field-chain prefix such as "header.Length" matching param "header"), so local
-    // variables and unrelated fields don't trigger the flag.
+    // dotted-field-chain prefix such as "header.Length" matching param "header"). When the
+    // target is a local variable (e.g. "loc_0"), its most recent assignment before the
+    // comparison is resolved to a parameter name so that shapes like
+    //   `loc_0 = header.Length; if (loc_0 ∈ {4,8,12}) safe; else throw;`
+    // are correctly attributed to the `header` parameter.
     private static bool ThrowShapeSanitisesATaintedParam(
         SanitizerMatch sanitizer, MethodDefinition method, TaintState state)
     {
         var target = sanitizer.EstablishesBound.Target;
         int argOffset = method.HasThis ? 1 : 0;
+
+        if (MatchesAnyTaintedParam(target, method, argOffset, state)) return true;
+
+        // Indirect: target is a local variable — trace its source assignment.
+        var localIdx = FindLocalIndex(target, method);
+        if (localIdx is { } idx)
+        {
+            var source = ResolveLocalSource(idx, sanitizer.ComparisonIlOffset, method);
+            if (source is not null && MatchesAnyTaintedParam(source, method, argOffset, state))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool MatchesAnyTaintedParam(string name, MethodDefinition method, int argOffset, TaintState state)
+    {
         for (int i = 0; i < method.Parameters.Count; i++)
         {
             var paramName = method.Parameters[i].Name;
-            if (target != paramName && !target.StartsWith(paramName + ".", StringComparison.Ordinal))
+            if (name != paramName && !name.StartsWith(paramName + ".", StringComparison.Ordinal))
                 continue;
             if (state.Args.TryGetValue(i + argOffset, out var slot) && slot.Tainted)
                 return true;
         }
         return false;
     }
+
+    // Find the index of the local variable with the given name, or null.
+    private static int? FindLocalIndex(string localName, MethodDefinition method)
+    {
+        if (method.Body?.Variables is null) return null;
+        for (int i = 0; i < method.Body.Variables.Count; i++)
+        {
+            if (SanitizerShapes.LocalName(method, i) == localName) return i;
+        }
+        return null;
+    }
+
+    // Find what was last stored into local `localIdx` before instruction at `beforeOffset`,
+    // and return a name for that value (e.g., "header.Length"). Returns null if unresolvable.
+    private static string? ResolveLocalSource(int localIdx, int beforeOffset, MethodDefinition method)
+    {
+        if (method.Body is null) return null;
+
+        Instruction? lastStore = null;
+        foreach (var ins in method.Body.Instructions)
+        {
+            if (ins.Offset >= beforeOffset) break;
+            if (LocalIndexOf(ins) == localIdx) lastStore = ins;
+        }
+
+        if (lastStore?.Previous is not { } valueIns) return null;
+        return SanitizerShapes.OperandName(valueIns, method);
+    }
+
+    private static int? LocalIndexOf(Instruction ins) =>
+        ins.OpCode.Code switch
+        {
+            Code.Stloc_0 => 0,
+            Code.Stloc_1 => 1,
+            Code.Stloc_2 => 2,
+            Code.Stloc_3 => 3,
+            Code.Stloc or Code.Stloc_S when ins.Operand is VariableDefinition vd => vd.Index,
+            _ => null,
+        };
 
     // arg slot stays as-is. Adequate for the #3074 chain where buffers come from `stackalloc` stored
     // to a local and then pushed via `ldloc <buffer>`.

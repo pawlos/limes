@@ -298,10 +298,11 @@ public static class SanitizerShapes
             // direct bgt/blt/beq etc., so we need to walk back through that pattern.
             Code effectiveCode;
             ComparisonOperands operands;
-            if (!TryResolveEffectiveComparison(ins, method, out effectiveCode, out operands))
+            if (!TryResolveEffectiveComparison(ins, method, out effectiveCode, out operands, out var overrideFail))
                 continue;
 
-            var bound = ReadBoundFromSafeSide(effectiveCode, operands, sides.FailureSideIsBranchTarget);
+            var failSide = overrideFail ?? sides.FailureSideIsBranchTarget;
+            var bound = ReadBoundFromSafeSide(effectiveCode, operands, failSide);
             if (bound is null) continue;
             bound = NormalizeAdditiveOffset(bound);
 
@@ -341,22 +342,22 @@ public static class SanitizerShapes
     //   and whether the branch is brfalse (fires when result=0) or brtrue (fires when result=1).
     //
     // Returns false when neither shape is recognized.
+    //
+    // overrideFailureSideIsBranchTarget: null for Shapes A/B (caller uses DetectBranchSides result);
+    // non-null for Shape C where the inner beq/bne's failure direction overrides the outer branch.
     private static bool TryResolveEffectiveComparison(
         Instruction branch, MethodDefinition method,
-        out Code effectiveCode, out ComparisonOperands operands)
+        out Code effectiveCode, out ComparisonOperands operands,
+        out bool? overrideFailureSideIsBranchTarget)
     {
         effectiveCode = default;
         operands = default;
+        overrideFailureSideIsBranchTarget = null;
 
         var brCode = branch.OpCode.Code;
 
         // Shape A: direct comparison branch opcode.
-        if (brCode is Code.Bgt or Code.Bgt_Un or Code.Bgt_S or Code.Bgt_Un_S
-                   or Code.Blt or Code.Blt_Un or Code.Blt_S or Code.Blt_Un_S
-                   or Code.Bge or Code.Bge_Un or Code.Bge_S or Code.Bge_Un_S
-                   or Code.Ble or Code.Ble_Un or Code.Ble_S or Code.Ble_Un_S
-                   or Code.Beq or Code.Beq_S
-                   or Code.Bne_Un or Code.Bne_Un_S)
+        if (IsShapeABranchCode(brCode))
         {
             // <push left>; <push right>; bXX
             var (leftIns, rightIns) = FindOperandPushers(branch, method, depthAtComparison: 2);
@@ -452,6 +453,58 @@ public static class SanitizerShapes
             }
         }
 
+        // Shape C: multi-way OR sets a boolean local, then brtrue/brfalse on that local.
+        // Roslyn lowers `if (x==A || x==B || x==C) safe; else throw;` two ways:
+        //
+        // Variant 1 (beq.s TRUE / bne.un.s FALSE with explicit bool blocks):
+        //   <cond1>; beq.s TRUE; <cond2>; beq.s TRUE; <condN>; bne.un.s FALSE
+        //   TRUE: ldc.i4.1; stloc V_1; br.s LDLOC
+        //   FALSE: ldc.i4.0; stloc V_1          ← stlocIns.Previous lands here (cur)
+        //   LDLOC: ldloc V_1; brtrue SAFE
+        //   throw ...
+        //   SAFE: ...
+        //
+        // After Steps 1-3, cur points at the ldc.i4.0/1 bool constant of the FALSE block.
+        // The comparison branch (bne.un.s) that guards entry to the FALSE block may be:
+        //   • immediately before cur (Variant 1 trivial case), OR
+        //   • separated by the TRUE block: [...;ldc.i4.1; stloc.N; br.s LDLOC]; bne.un.s FALSE
+        //     In that case cur.Previous is the trailing br.s of the TRUE arm.
+        if (cur is not null && IsLdI4BoolConstant(cur.OpCode.Code))
+        {
+            // Walk back past the optional interposed true-block:
+            //   br/br.s (end of true arm) → stloc.N (true arm's bool write) → ldc.i4.0/1 (true arm const)
+            var probe = cur.Previous;
+            if (probe is not null && (probe.OpCode.Code is Code.Br or Code.Br_S))
+                probe = probe.Previous;
+            if (probe is not null && IsStloc(probe.OpCode.Code))
+                probe = probe.Previous;
+            if (probe is not null && IsLdI4BoolConstant(probe.OpCode.Code))
+                probe = probe.Previous;
+
+            var directComp = probe;
+            if (directComp is not null && IsShapeABranchCode(directComp.OpCode.Code))
+            {
+                var (leftIns, rightIns) = FindOperandPushers(directComp, method, depthAtComparison: 2);
+                if (leftIns is not null && rightIns is not null)
+                {
+                    var right = OperandName(rightIns, method);
+                    var left  = OperandName(leftIns, method);
+                    if (right is not null && left is not null)
+                    {
+                        effectiveCode = directComp.OpCode.Code;
+                        operands = new ComparisonOperands(left, right);
+                        // The directComp branches to cur (the FALSE/FAIL side) when its condition
+                        // fires, or falls through to the TRUE side. Determine failure direction
+                        // from which arm the directComp jumps to.
+                        bool innerBranchTargetIsFalseSide =
+                            (directComp.Operand as Instruction)?.Offset == cur.Offset;
+                        overrideFailureSideIsBranchTarget = innerBranchTargetIsFalseSide;
+                        return true;
+                    }
+                }
+            }
+        }
+
         // Step 4: actual comparison opcode (cgt, clt, ceq).
         if (cur is null) return false;
         var compCode = cur.OpCode.Code;
@@ -518,7 +571,20 @@ public static class SanitizerShapes
     private static bool IsComparisonOpcode(Code code) =>
         code is Code.Cgt or Code.Cgt_Un or Code.Clt or Code.Clt_Un or Code.Ceq;
 
-    private static string? OperandName(Instruction ins, MethodDefinition method)
+    // True for direct comparison branch opcodes (Shape A and Shape C detection).
+    private static bool IsShapeABranchCode(Code c) =>
+        c is Code.Bgt or Code.Bgt_Un or Code.Bgt_S or Code.Bgt_Un_S
+           or Code.Blt or Code.Blt_Un or Code.Blt_S or Code.Blt_Un_S
+           or Code.Bge or Code.Bge_Un or Code.Bge_S or Code.Bge_Un_S
+           or Code.Ble or Code.Ble_Un or Code.Ble_S or Code.Ble_Un_S
+           or Code.Beq or Code.Beq_S
+           or Code.Bne_Un or Code.Bne_Un_S;
+
+    // True for ldc.i4.0 / ldc.i4.1 — the boolean constants used in multi-way-OR lowering.
+    private static bool IsLdI4BoolConstant(Code c) =>
+        c is Code.Ldc_I4_0 or Code.Ldc_I4_1;
+
+    internal static string? OperandName(Instruction ins, MethodDefinition method)
     {
         switch (ins.OpCode.Code)
         {
@@ -742,7 +808,7 @@ public static class SanitizerShapes
         };
     }
 
-    private static string LocalName(MethodDefinition m, int idx)
+    internal static string LocalName(MethodDefinition m, int idx)
     {
         // Cecil's VariableDefinition doesn't expose a Name property directly; the name
         // lives in the method's debug information as a VariableDebugInformation entry.
