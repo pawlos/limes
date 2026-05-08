@@ -132,9 +132,13 @@ public static class SinkShapes
         };
     }
 
-    // Milestone-H: unconditional sink for unbounded HTTP response reads.
-    // Fires on any call to the listed methods regardless of receiver taint — the call itself
-    // is the dangerous operation. Noise is controlled by source-entry selection in rules.yaml.
+    // Unconditional sink for unbounded HTTP response reads.
+    // Only methods that materialize the ENTIRE response body into a managed buffer are listed.
+    // Stream-returning overloads (ReadAsStreamAsync, GetStreamAsync) are intentionally excluded:
+    // they return a Stream handle without allocating a large buffer at the call site — the
+    // danger is downstream if the stream is read without a bound, which is captured by other
+    // sinks (e.g. MatchNewArray). Adding stream overloads here would cause false positives on
+    // bounded-read patterns (e.g. HttpClientHelpers.GetResponseBodyAsString with a 4 MiB cap).
     public static SinkMatch? MatchHttpRead(Instruction instruction, SymbolicStack stack)
     {
         if (instruction.OpCode.Code is not (Code.Call or Code.Callvirt)) return null;
@@ -144,9 +148,9 @@ public static class SinkShapes
 
         SinkApi? api = (typeName, methodName) switch
         {
-            ("HttpContent", "ReadAsStringAsync" or "ReadAsByteArrayAsync" or "ReadAsStreamAsync")
+            ("HttpContent", "ReadAsStringAsync" or "ReadAsByteArrayAsync")
                 => SinkApi.HttpContentRead,
-            ("HttpClient", "GetStringAsync" or "GetByteArrayAsync" or "GetStreamAsync")
+            ("HttpClient", "GetStringAsync" or "GetByteArrayAsync")
                 => SinkApi.HttpClientRead,
             _ => null,
         };

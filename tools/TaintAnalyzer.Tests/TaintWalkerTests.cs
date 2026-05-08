@@ -797,4 +797,35 @@ public class TaintWalkerTests
         summary.Hops.ShouldContain(h => h.SinkApi == SinkApi.NewArray,
             "tainted result.Length must flow to new byte[] sink");
     }
+
+    [Fact]
+    public void Walk_ReadAsStreamAsync_DoesNotFireSink()
+    {
+        // ReadAsStreamAsync returns a Stream handle, not a materialized buffer.
+        // Downstream bounded reads via loop guard are not captured here; this method
+        // must NOT fire an allocation sink.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.HttpClientReadFixtures::ReadAsStreamAsync_ReturnsStream(System.Net.Http.HttpContent)")!,
+            taintedParamBitmask: 0b1);
+
+        summary.ReachedSink.ShouldBeFalse("ReadAsStreamAsync is a stream handle, not an allocation sink");
+    }
+
+    [Fact]
+    public void Walk_GetStreamAsync_DoesNotFireSink()
+    {
+        // GetStreamAsync returns a lazy network Stream — no buffer is allocated at the call
+        // site. MatchHttpRead must NOT fire on stream-returning overloads.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var summary = walker.Walk(
+            ctx.FindMethod("TaintAnalyzer.Tests.Fixtures.HttpClientReadFixtures::GetStreamAsync_ReturnsStream()")!,
+            taintedParamBitmask: 0b0);
+
+        summary.ReachedSink.ShouldBeFalse("GetStreamAsync is a stream handle, not an allocation sink");
+    }
 }

@@ -603,6 +603,19 @@ public static class HttpClientReadFixtures
         var result = client.GetStringAsync("http://example.com").GetAwaiter().GetResult();
         return new byte[result.Length];
     }
+
+    // ReadAsStreamAsync returns a Stream handle — it does NOT allocate a large buffer.
+    // MatchHttpRead must NOT fire; the downstream sink (if any) is wherever the stream is read.
+    public static System.IO.Stream ReadAsStreamAsync_ReturnsStream(System.Net.Http.HttpContent content)
+        => content.ReadAsStreamAsync().GetAwaiter().GetResult();
+
+    // GetStreamAsync — same reasoning: returns a lazy network stream, no buffer allocation.
+    // MatchHttpRead must NOT fire.
+    public static System.IO.Stream GetStreamAsync_ReturnsStream()
+    {
+        using var client = new System.Net.Http.HttpClient();
+        return client.GetStreamAsync("http://example.com").GetAwaiter().GetResult();
+    }
 }
 
 // Fixtures for AsyncStateMachineResolver tests. Each method is intentionally minimal —
