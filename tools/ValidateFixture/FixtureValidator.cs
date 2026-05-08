@@ -155,7 +155,8 @@ public sealed class FixtureValidator
                 RequireField(n.TaintedValueIn, "FX020", $"path[{i}].tainted_value_in", diagnostics);
                 RequireField(n.TaintedValueOut, "FX020", $"path[{i}].tainted_value_out", diagnostics);
                 RequireField(n.Transformation, "FX020", $"path[{i}].transformation", diagnostics);
-                RequireField(n.Dispatch?.Kind, "FX020", $"path[{i}].dispatch.kind", diagnostics);
+                if (n.Dispatch is not null)
+                    RequireField(n.Dispatch.Kind, "FX020", $"path[{i}].dispatch.kind", diagnostics);
             }
         }
 

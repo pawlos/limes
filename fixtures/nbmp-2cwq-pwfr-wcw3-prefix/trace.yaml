@@ -1,0 +1,156 @@
+vuln_id: nbmp-2cwq-pwfr-wcw3-prefix
+advisory: GHSA-2cwq-pwfr-wcw3
+fix_commit: 7d1eb319cfabe7280e70699946c9a48579fa2f30
+fix_pr: https://github.com/AArnott/Nerdbank.MessagePack/pull/941
+description: >
+  Pre-fix Nerdbank.MessagePack 1.1.25: MessagePackPrimitives.TryRead assigns
+  tokenSize = checked((int)header.Length) before validating that header.Length
+  is a legal timestamp extension size. When the buffer is incomplete the caller
+  (MessagePackStreamingReader.TryRead) passes tokenSize directly to
+  stackalloc — attacker-controlled length causes StackOverflowException.
+  Fixed in 1.1.62 by validating the length before the assignment.
+
+source:
+  method: Nerdbank.MessagePack.MessagePackStreamingReader.TryRead
+  file: MessagePackStreamingReader.cs
+  line: 417
+  role: source
+  tainted_value_in: extensionHeader
+  transformation: read_stream
+  tainted_value_out: extensionHeader
+  kind: decoder_entry
+sink:
+  method: Nerdbank.MessagePack.MessagePackStreamingReader.<TryRead>g__SlowPath|31_0
+  file: MessagePackStreamingReader.cs
+  line: 437
+  role: sink
+  tainted_value_in: tokenSize
+  transformation: identity
+  tainted_value_out: tokenSize
+  kind: allocation
+  api: stackalloc
+  size_expression: tokenSize
+path:
+- hop: 0
+  method: Nerdbank.MessagePack.MessagePackStreamingReader.TryRead
+  file: MessagePackStreamingReader.cs
+  line: 417
+  role: propagator
+  tainted_value_in: extensionHeader
+  transformation: identity
+  tainted_value_out: MessagePackPrimitives.TryRead
+  dispatch:
+    kind: direct
+    static_type: Nerdbank.MessagePack.MessagePackPrimitives
+    resolved_targets: []
+    closure_boundary: false
+- hop: 1
+  method: Nerdbank.MessagePack.MessagePackPrimitives.TryRead
+  file: MessagePackPrimitives.Readers.cs
+  line: 370
+  role: propagator
+  tainted_value_in: header
+  transformation: identity
+  tainted_value_out: ExtensionHeader.Length
+  dispatch:
+    kind: direct
+    static_type: Nerdbank.MessagePack.ExtensionHeader
+    resolved_targets: []
+    closure_boundary: false
+- hop: 2
+  method: Nerdbank.MessagePack.ExtensionHeader.get_Length
+  file: ExtensionHeader.cs
+  line: 11
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <Length>k__BackingField
+- hop: 3
+  method: Nerdbank.MessagePack.MessagePackPrimitives.TryRead
+  file: MessagePackPrimitives.Readers.cs
+  line: 371
+  role: propagator
+  tainted_value_in: header
+  transformation: identity
+  tainted_value_out: ExtensionHeader.TypeCode
+  dispatch:
+    kind: direct
+    static_type: Nerdbank.MessagePack.ExtensionHeader
+    resolved_targets: []
+    closure_boundary: false
+- hop: 4
+  method: Nerdbank.MessagePack.ExtensionHeader.get_TypeCode
+  file: ExtensionHeader.cs
+  line: 11
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: <TypeCode>k__BackingField
+- hop: 5
+  method: Nerdbank.MessagePack.MessagePackPrimitives.TryRead
+  file: MessagePackPrimitives.Readers.cs
+  line: 371
+  role: sanitizer
+  tainted_value_in: header.TypeCode
+  transformation: identity
+  tainted_value_out: header.TypeCode
+  dispatch:
+    kind: direct
+    static_type: Nerdbank.MessagePack.MessagePackPrimitives
+    resolved_targets: []
+    closure_boundary: false
+  establishes_bound:
+    target: header.TypeCode
+    relation: ==
+    upper_bound: -1
+  on_failure:
+    kind: return_early
+- hop: 6
+  method: Nerdbank.MessagePack.MessagePackPrimitives.TryRead
+  file: MessagePackPrimitives.Readers.cs
+  line: 383
+  role: sanitizer
+  tainted_value_in: loc_5
+  transformation: identity
+  tainted_value_out: loc_5
+  dispatch:
+    kind: direct
+    static_type: Nerdbank.MessagePack.MessagePackPrimitives
+    resolved_targets: []
+    closure_boundary: false
+  establishes_bound:
+    target: loc_5
+    relation: ==
+    upper_bound: 12
+  on_failure:
+    kind: return_early
+- hop: 7
+  method: Nerdbank.MessagePack.MessagePackStreamingReader.TryRead
+  file: MessagePackStreamingReader.cs
+  line: 420
+  role: propagator
+  tainted_value_in: MessagePackPrimitives.TryRead
+  transformation: cast
+  tainted_value_out: MessagePackPrimitives.TryRead
+- hop: 8
+  method: Nerdbank.MessagePack.MessagePackStreamingReader.<TryRead>g__SlowPath|31_0
+  file: MessagePackStreamingReader.cs
+  line: 431
+  role: propagator
+  tainted_value_in: tokenSize
+  transformation: cast
+  tainted_value_out: tokenSize
+- hop: 9
+  method: Nerdbank.MessagePack.MessagePackStreamingReader.<TryRead>g__SlowPath|31_0
+  file: MessagePackStreamingReader.cs
+  line: 437
+  role: propagator
+  tainted_value_in: tokenSize
+  transformation: cast
+  tainted_value_out: tokenSize
+sanitizer_absence:
+- location: MessagePackStreamingReader.cs:431
+  expected_check: tokenSize must be bounded before reaching stackalloc at MessagePackStreamingReader.cs:437
+  tainted_value: tokenSize
+  present_pre_fix: true
+  present_post_fix: false
