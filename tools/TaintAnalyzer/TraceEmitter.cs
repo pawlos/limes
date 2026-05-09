@@ -155,7 +155,8 @@ public static class TraceEmitter
             bool hasSanitizer = pathHops.Any(h =>
                 h.Role == HopRole.Sanitizer
                 && h.Method == sinkHop.Method
-                && SanitizerBoundMatchesSink(h, chainTokens));
+                && SanitizerBoundMatchesSink(h, chainTokens)
+                && !(h.EstablishesBound?.VacuousUpperBound == true));
             if (!hasSanitizer && pathHops.Count > 0)
             {
                 var sinkApi = SinkApiToString(sinkHop.SinkApi) ?? "unknown";
@@ -253,7 +254,7 @@ public static class TraceEmitter
             : null;
 
         var eb = h.EstablishesBound is { } bound
-            ? new ValidateFixture.EstablishesBound { Target = bound.Target, Relation = bound.Relation, UpperBound = bound.UpperBound, LowerBound = bound.LowerBound }
+            ? new ValidateFixture.EstablishesBound { Target = bound.Target, Relation = bound.Relation, UpperBound = bound.UpperBound, LowerBound = bound.LowerBound, VacuousUpperBound = bound.VacuousUpperBound }
             : null;
 
         var onFail = h.OnFailure is { } of

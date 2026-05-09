@@ -71,10 +71,11 @@ public sealed class FixEvidence
 
 public sealed class EstablishesBound
 {
-    [YamlMember(Alias = "target")]      public string? Target      { get; init; }
-    [YamlMember(Alias = "relation")]    public string? Relation    { get; init; }
-    [YamlMember(Alias = "upper_bound")] public string? UpperBound  { get; init; }
-    [YamlMember(Alias = "lower_bound")] public string? LowerBound  { get; init; }
+    [YamlMember(Alias = "target")]              public string? Target            { get; init; }
+    [YamlMember(Alias = "relation")]            public string? Relation          { get; init; }
+    [YamlMember(Alias = "upper_bound")]         public string? UpperBound        { get; init; }
+    [YamlMember(Alias = "lower_bound")]         public string? LowerBound        { get; init; }
+    [YamlMember(Alias = "vacuous_upper_bound")] public bool    VacuousUpperBound { get; init; }
 }
 
 public sealed class OnFailure

@@ -22,6 +22,10 @@ public sealed class EstablishesBound
     public required string Relation { get; init; }
     public string? UpperBound { get; init; }
     public string? LowerBound { get; init; }
+    // True when the upper bound resolves to int.MaxValue at static analysis time — i.e. the guard
+    // `value <= MaxDocumentSize` is trivially satisfied for every valid int32 and provides no
+    // protection. A vacuous upper bound does not suppress sanitizer_absence emission.
+    public bool VacuousUpperBound { get; init; }
 }
 
 public sealed class OnFailure

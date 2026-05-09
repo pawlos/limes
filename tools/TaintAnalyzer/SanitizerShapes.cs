@@ -306,6 +306,16 @@ public static class SanitizerShapes
             if (bound is null) continue;
             bound = NormalizeAdditiveOffset(bound);
 
+            // Detect vacuous upper bound: if the RHS resolves to int.MaxValue at analysis
+            // time, the guard `value <= MaxDocumentSize` is never false for any int32 and
+            // provides no protection. Mark it so TraceEmitter does not suppress absence.
+            if (bound.UpperBound != null && operands.RightIns is { } ri)
+            {
+                int? resolved = TryResolveInt32Constant(ri);
+                if (resolved == int.MaxValue)
+                    bound = new EstablishesBound { Target = bound.Target, Relation = bound.Relation, UpperBound = bound.UpperBound, LowerBound = bound.LowerBound, VacuousUpperBound = true };
+            }
+
             string? exception = null;
             if (sides.FailureKind == FailureKind.Throw && sides.ThrowHelper is { } helper)
             {
@@ -326,7 +336,7 @@ public static class SanitizerShapes
         }
     }
 
-    private readonly record struct ComparisonOperands(string Left, string Right);
+    private readonly record struct ComparisonOperands(string Left, string Right, Instruction? RightIns = null);
 
     // Resolve the effective comparison Code and operand names from a conditional branch instruction.
     //
@@ -368,7 +378,7 @@ public static class SanitizerShapes
             if (right is null || left is null) return false;
 
             effectiveCode = brCode;
-            operands = new ComparisonOperands(left, right);
+            operands = new ComparisonOperands(left, right, rightIns);
             return true;
         }
 
@@ -492,7 +502,7 @@ public static class SanitizerShapes
                     if (right is not null && left is not null)
                     {
                         effectiveCode = directComp.OpCode.Code;
-                        operands = new ComparisonOperands(left, right);
+                        operands = new ComparisonOperands(left, right, rightIns);
                         // The directComp branches to cur (the FALSE/FAIL side) when its condition
                         // fires, or falls through to the TRUE side. Determine failure direction
                         // from which arm the directComp jumps to.
@@ -542,7 +552,7 @@ public static class SanitizerShapes
         effectiveCode = SynthesizeBranchCode(compCode, negateForEffective);
         if (effectiveCode == default) return false;
 
-        operands = new ComparisonOperands(leftName, rightName);
+        operands = new ComparisonOperands(leftName, rightName, rightOperandIns);
         return true;
     }
 
@@ -1238,4 +1248,152 @@ public static class SanitizerShapes
 
     private static string? ParamName(MethodDefinition m, int index)
         => index >= 0 && index < m.Parameters.Count ? m.Parameters[index].Name : null;
+
+    // --- Vacuous-bound detection via IL constant propagation ---
+
+    // Try to statically evaluate `ins` as an int32 constant. Returns null when the value
+    // cannot be determined without runtime information. Follows:
+    //   ldc.i4.* variants           → literal integer
+    //   conv.* (type conversions)   → recurse to predecessor
+    //   ldsfld F                    → find F's assignment in the declaring type's .cctor
+    //   ldfld F (any receiver)      → find F's default assignment in instance constructors
+    //   call/callvirt get_X         → follow into the simple getter body
+    // Depth is capped at 8 to prevent cycles.
+    internal static int? TryResolveInt32Constant(Instruction? ins, int depth = 0)
+    {
+        if (ins == null || depth > 8) return null;
+
+        switch (ins.OpCode.Code)
+        {
+            case Code.Ldc_I4:   return (int)ins.Operand;
+            case Code.Ldc_I4_S: return (int)(sbyte)ins.Operand;
+            case Code.Ldc_I4_0: return 0;
+            case Code.Ldc_I4_1: return 1;
+            case Code.Ldc_I4_2: return 2;
+            case Code.Ldc_I4_3: return 3;
+            case Code.Ldc_I4_4: return 4;
+            case Code.Ldc_I4_5: return 5;
+            case Code.Ldc_I4_6: return 6;
+            case Code.Ldc_I4_7: return 7;
+            case Code.Ldc_I4_8: return 8;
+            case Code.Ldc_I4_M1: return -1;
+
+            // Type conversions are transparent for value purposes.
+            case Code.Conv_I:
+            case Code.Conv_I1:
+            case Code.Conv_I2:
+            case Code.Conv_I4:
+            case Code.Conv_I8:
+            case Code.Conv_U:
+            case Code.Conv_U1:
+            case Code.Conv_U2:
+            case Code.Conv_U4:
+            case Code.Conv_U8:
+                return TryResolveInt32Constant(ins.Previous, depth);
+
+            // Static field load: look for the last assignment in the declaring type's .cctor.
+            case Code.Ldsfld:
+                if (ins.Operand is FieldReference sfr)
+                {
+                    var field = TrySafeResolve(sfr);
+                    if (field == null) return null;
+                    if (field.HasConstant && field.Constant is int cv) return cv;
+                    return ResolveFromStaticCtor(field, depth + 1);
+                }
+                return null;
+
+            // Instance field load: look for a default assignment in instance constructors.
+            case Code.Ldfld:
+                if (ins.Operand is FieldReference fr)
+                {
+                    var field = TrySafeResolve(fr);
+                    return field != null ? ResolveFromInstanceCtor(field, depth + 1) : null;
+                }
+                return null;
+
+            // Property getter call: follow into the getter body if it is simple.
+            case Code.Call:
+            case Code.Callvirt:
+                if (ins.Operand is MethodReference mr
+                    && mr.Name.StartsWith("get_", StringComparison.Ordinal)
+                    && mr.Parameters.Count == 0)
+                {
+                    var getter = SafeResolve(mr);
+                    return getter != null ? ResolveGetterConstant(getter, depth + 1) : null;
+                }
+                return null;
+
+            default:
+                return null;
+        }
+    }
+
+    // Find the value assigned to a static field in the declaring type's static constructor.
+    private static int? ResolveFromStaticCtor(FieldDefinition field, int depth)
+    {
+        if (depth > 8) return null;
+        var cctor = field.DeclaringType.Methods.FirstOrDefault(m => m.IsConstructor && m.IsStatic);
+        if (cctor?.Body == null) return null;
+        foreach (var instr in cctor.Body.Instructions)
+        {
+            if (instr.OpCode.Code == Code.Stsfld
+                && instr.Operand is FieldReference sfr
+                && sfr.FullName == field.FullName
+                && instr.Previous != null)
+            {
+                return TryResolveInt32Constant(instr.Previous, depth + 1);
+            }
+        }
+        return null;
+    }
+
+    // Find the default value assigned to an instance field in the declaring type's instance
+    // constructors. Prefers the no-arg or single-arg constructor as the most likely source of
+    // the library default.
+    private static int? ResolveFromInstanceCtor(FieldDefinition field, int depth)
+    {
+        if (depth > 8) return null;
+        var ctors = field.DeclaringType.Methods
+            .Where(m => m.IsConstructor && !m.IsStatic && m.Body != null)
+            .OrderBy(m => m.Parameters.Count);
+        foreach (var ctor in ctors)
+        {
+            foreach (var instr in ctor.Body.Instructions)
+            {
+                if (instr.OpCode.Code == Code.Stfld
+                    && instr.Operand is FieldReference fr
+                    && fr.FullName == field.FullName
+                    && instr.Previous != null)
+                {
+                    var v = TryResolveInt32Constant(instr.Previous, depth + 1);
+                    if (v.HasValue) return v;
+                }
+            }
+        }
+        return null;
+    }
+
+    // Follow a simple getter body to its constant. Recognises:
+    //   [ldarg.0;] ldsfld/ldfld F; ret   (simple field-returning getter)
+    private static int? ResolveGetterConstant(MethodDefinition getter, int depth)
+    {
+        if (depth > 8 || getter.Body == null) return null;
+        var nonNop = getter.Body.Instructions
+            .Where(i => i.OpCode.Code != Code.Nop)
+            .ToList();
+        // Pattern: ldfld/ldsfld; ret  OR  ldarg.0; ldfld; ret
+        if (nonNop.Count == 2 && nonNop[1].OpCode.Code == Code.Ret)
+            return TryResolveInt32Constant(nonNop[0], depth + 1);
+        if (nonNop.Count == 3
+            && nonNop[0].OpCode.Code == Code.Ldarg_0
+            && nonNop[2].OpCode.Code == Code.Ret)
+            return TryResolveInt32Constant(nonNop[1], depth + 1);
+        return null;
+    }
+
+    private static FieldDefinition? TrySafeResolve(FieldReference fr)
+    {
+        try { return fr.Resolve(); }
+        catch { return null; }
+    }
 }

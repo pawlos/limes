@@ -322,6 +322,69 @@ public class SanitizerShapesTests
         summary.ReturnsTainted.ShouldBeFalse();
     }
 
+    // --- Vacuous-bound detection (Milestone-P) ---
+
+    [Fact]
+    public void MatchCompareAndThrow_LiteralIntMaxValue_SetsVacuousUpperBound()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = ctx.AllMethods().First(md =>
+            md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.VacuousBoundFixtures"
+            && md.Name == "GuardWithLiteralMaxValue");
+
+        var match = SanitizerShapes.MatchCompareAndThrow(m);
+
+        match.ShouldNotBeNull();
+        match!.EstablishesBound.UpperBound.ShouldNotBeNull();
+        match.EstablishesBound.VacuousUpperBound.ShouldBeTrue(
+            "ldc.i4 2147483647 resolves to int.MaxValue — guard is trivially satisfied");
+    }
+
+    [Fact]
+    public void MatchCompareAndThrow_StaticFieldIntMaxValue_SetsVacuousUpperBound()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = ctx.AllMethods().First(md =>
+            md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.VacuousBoundFixtures"
+            && md.Name == "GuardWithStaticFieldMaxValue");
+
+        var match = SanitizerShapes.MatchCompareAndThrow(m);
+
+        match.ShouldNotBeNull();
+        match!.EstablishesBound.VacuousUpperBound.ShouldBeTrue(
+            "ldsfld → .cctor ldc.i4 2147483647 resolves to int.MaxValue");
+    }
+
+    [Fact]
+    public void MatchCompareAndThrow_SmallStaticLimit_DoesNotSetVacuousUpperBound()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = ctx.AllMethods().First(md =>
+            md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.VacuousBoundFixtures"
+            && md.Name == "GuardWithSmallLimit");
+
+        var match = SanitizerShapes.MatchCompareAndThrow(m);
+
+        match.ShouldNotBeNull();
+        match!.EstablishesBound.VacuousUpperBound.ShouldBeFalse(
+            "16 MiB limit is a real bound — must not be flagged as vacuous");
+    }
+
+    [Fact]
+    public void MatchCompareAndThrow_InstancePropertyIntMaxValue_SetsVacuousUpperBound()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = ctx.AllMethods().First(md =>
+            md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.VacuousBoundInstanceFixture"
+            && md.Name == "GuardWithInstancePropertyMaxValue");
+
+        var match = SanitizerShapes.MatchCompareAndThrow(m);
+
+        match.ShouldNotBeNull();
+        match!.EstablishesBound.VacuousUpperBound.ShouldBeTrue(
+            "callvirt get_MaxSize → ldfld _maxSize → ctor assignment ldc.i4 2147483647");
+    }
+
     private static Instruction FindConditionalBranch(MethodDefinition m)
         => m.Body.Instructions.First(i => IsConditionalBranch(i.OpCode));
 

@@ -775,3 +775,47 @@ public static class InParamFixtures
     // Reference-type `in` parameter — same modreq encoding.
     public static int StringLength(in string s) => s.Length;
 }
+
+// Milestone-P fixtures — vacuous-bound detection for TryResolveInt32Constant.
+// These exercise the constant-propagation chain: literal → static field → instance-field-via-property.
+public static class VacuousBoundFixtures
+{
+    // 1. Direct int.MaxValue literal in the guard.
+    //    IL: `ldc.i4 2147483647` as the right operand.
+    //    Expected: VacuousUpperBound = true.
+    public static void GuardWithLiteralMaxValue(int size)
+    {
+        if (size > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(size));
+    }
+
+    // 2. Guard against a static field that holds int.MaxValue.
+    //    IL: `ldsfld VacuousBoundFixtures::MaxDocSizeField` → resolved via .cctor to ldc.i4.m1 (= -1 = int.MaxValue).
+    //    Expected: VacuousUpperBound = true.
+    private static readonly int MaxDocSizeField = int.MaxValue;
+    public static void GuardWithStaticFieldMaxValue(int size)
+    {
+        if (size > MaxDocSizeField) throw new ArgumentOutOfRangeException(nameof(size));
+    }
+
+    // 3. Guard against a small reasonable limit — NOT vacuous.
+    //    Expected: VacuousUpperBound = false.
+    private static readonly int MaxBlobSize = 16 * 1024 * 1024;  // 16 MiB
+    public static void GuardWithSmallLimit(int size)
+    {
+        if (size > MaxBlobSize) throw new ArgumentOutOfRangeException(nameof(size));
+    }
+}
+
+// Non-static companion: exercises the instance-field-via-property resolution path.
+// Guard via `callvirt get_MaxSize → ldarg.0; ldfld _maxSize; ret → ctor stfld ldc.i4 int.MaxValue`.
+public class VacuousBoundInstanceFixture
+{
+    private readonly int _maxSize;
+    public VacuousBoundInstanceFixture() { _maxSize = int.MaxValue; }
+    public int MaxSize => _maxSize;
+
+    public void GuardWithInstancePropertyMaxValue(int size)
+    {
+        if (size > MaxSize) throw new ArgumentOutOfRangeException(nameof(size));
+    }
+}
