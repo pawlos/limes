@@ -34,7 +34,7 @@ public sealed class AssemblyContext : IDisposable
         }
     }
 
-    public static AssemblyContext Load(string path)
+    public static AssemblyContext Load(string path, bool noSymbols = false)
     {
         if (!File.Exists(path))
         {
@@ -43,7 +43,7 @@ public sealed class AssemblyContext : IDisposable
 
         var rp = new ReaderParameters
         {
-            ReadSymbols = true,
+            ReadSymbols = !noSymbols,
             ReadWrite = false,
             InMemory = true,
         };
@@ -55,12 +55,16 @@ public sealed class AssemblyContext : IDisposable
         }
         catch (Exception ex)
         {
+            if (noSymbols)
+                throw new AssemblyContextException(
+                    $"failed to load assembly at {path}: ({ex.Message})",
+                    ex);
             throw new AssemblyContextException(
                 $"failed to load assembly with symbols at {path}: ensure a portable or Windows PDB sits next to the DLL. ({ex.Message})",
                 ex);
         }
 
-        if (!asm.MainModule.HasSymbols)
+        if (!noSymbols && !asm.MainModule.HasSymbols)
         {
             asm.Dispose();
             throw new AssemblyContextException(

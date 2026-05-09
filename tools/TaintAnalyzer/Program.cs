@@ -15,6 +15,7 @@ public static class Program
         string? target = null;
         string? rulesPath = null;
         string? outputPath = null;
+        bool noSymbols = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -28,6 +29,10 @@ public static class Program
             {
                 if (++i >= args.Length) { Console.Error.WriteLine("error: --output requires a path"); return 2; }
                 outputPath = args[i];
+            }
+            else if (a == "--no-symbols")
+            {
+                noSymbols = true;
             }
             else if (a.StartsWith("--", StringComparison.Ordinal))
             {
@@ -78,7 +83,7 @@ public static class Program
         AssemblyContext context;
         try
         {
-            context = AssemblyContext.Load(target);
+            context = AssemblyContext.Load(target, noSymbols);
         }
         catch (AssemblyContextException ex)
         {
@@ -192,6 +197,6 @@ public static class Program
 
     private static void PrintUsage()
     {
-        Console.Error.WriteLine("usage: TaintAnalyzer <target.dll> --rules <rules.yaml> [--output <trace.yaml>]");
+        Console.Error.WriteLine("usage: TaintAnalyzer <target.dll> --rules <rules.yaml> [--output <trace.yaml>] [--no-symbols]");
     }
 }
