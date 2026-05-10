@@ -385,6 +385,33 @@ public class SanitizerShapesTests
             "callvirt get_MaxSize → ldfld _maxSize → ctor assignment ldc.i4 2147483647");
     }
 
+    [Fact]
+    public void ConvOvf_DirectLongToNewarr_SinkFound()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+        var m = ctx.AllMethods().First(md =>
+            md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.ConvOvfFixtures"
+            && md.Name == "AllocateFromLong");
+        var summary = walker.Walk(m, taintedParamBitmask: 0b1);
+        summary.ReachedSink.ShouldBeTrue("conv.ovf.i before newarr must not drop taint");
+        summary.Hops.ShouldContain(h => h.Role == HopRole.Sink && h.SinkApi == SinkApi.NewArray,
+            "long → conv.ovf.i → newarr should be a new_array sink");
+    }
+
+    [Fact]
+    public void ConvOvf_LongViaLocal_SinkFound()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+        var m = ctx.AllMethods().First(md =>
+            md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.ConvOvfFixtures"
+            && md.Name == "AllocateFromLongViaLocal");
+        var summary = walker.Walk(m, taintedParamBitmask: 0b1);
+        summary.ReachedSink.ShouldBeTrue("taint through local before conv.ovf.i must reach newarr");
+        summary.Hops.ShouldContain(h => h.Role == HopRole.Sink && h.SinkApi == SinkApi.NewArray);
+    }
+
     private static Instruction FindConditionalBranch(MethodDefinition m)
         => m.Body.Instructions.First(i => IsConditionalBranch(i.OpCode));
 

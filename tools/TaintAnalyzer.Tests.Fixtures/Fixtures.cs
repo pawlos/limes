@@ -819,3 +819,18 @@ public class VacuousBoundInstanceFixture
         if (size > MaxSize) throw new ArgumentOutOfRangeException(nameof(size));
     }
 }
+
+// Fixture for conv.ovf.* taint propagation through overflow-checked conversions.
+public static class ConvOvfFixtures
+{
+    public static byte[] AllocateFromLong(long size)
+    {
+        return new byte[size];   // IL: ldarg.0; conv.ovf.i; newarr
+    }
+
+    public static byte[] AllocateFromLongViaLocal(long size)
+    {
+        long n = size;
+        return new byte[n];      // taint through local before conv.ovf.i
+    }
+}
