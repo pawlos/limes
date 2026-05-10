@@ -52,6 +52,29 @@ public static class SinkShapes
         };
     }
 
+    // BinaryReader.ReadBytes(int) allocates a managed byte[] of exactly `count` bytes.
+    // Matches callvirt or call on System.IO.BinaryReader::ReadBytes(Int32) when the count arg is tainted.
+    public static SinkMatch? MatchBinaryReaderReadBytes(Instruction instruction, SymbolicStack stack)
+    {
+        if (instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) return null;
+        if (instruction.Operand is not MethodReference mr) return null;
+        if (mr.Name != "ReadBytes") return null;
+        if (mr.DeclaringType.FullName != "System.IO.BinaryReader") return null;
+        if (mr.Parameters.Count != 1) return null;
+        if (mr.Parameters[0].ParameterType.FullName != "System.Int32") return null;
+
+        if (stack.Depth < 2) return null;
+        var sizeSlot = stack.Peek(0);
+        if (!sizeSlot.Tainted) return null;
+
+        return new SinkMatch
+        {
+            Kind = SinkKind.Allocation,
+            Api = SinkApi.NewArray,
+            SizeProvenance = sizeSlot.Provenance,
+        };
+    }
+
     public static SinkMatch? MatchReadOnlySpanSlice(Instruction instruction, SymbolicStack stack)
     {
         if (instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) return null;

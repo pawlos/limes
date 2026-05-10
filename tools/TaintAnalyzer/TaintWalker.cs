@@ -270,6 +270,7 @@ public sealed class TaintWalker
         var m =
             SinkShapes.MatchNewArr(ins, state.Stack)
             ?? SinkShapes.MatchArrayPoolRent(ins, state.Stack)
+            ?? SinkShapes.MatchBinaryReaderReadBytes(ins, state.Stack)
             ?? SinkShapes.MatchReadOnlySpanSlice(ins, state.Stack)
             ?? SinkShapes.MatchReadOnlySpanIndex(ins, state.Stack)
             ?? SinkShapes.MatchLocalloc(ins, state.Stack)

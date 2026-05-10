@@ -820,6 +820,15 @@ public class VacuousBoundInstanceFixture
     }
 }
 
+// Fixture for BinaryReader.ReadBytes(int) as an allocation sink.
+public static class BinaryReaderFixtures
+{
+    public static byte[] ReadBytesFromTaintedLength(System.IO.BinaryReader reader, int length)
+    {
+        return reader.ReadBytes(length);   // callvirt BinaryReader::ReadBytes(Int32), length is tainted
+    }
+}
+
 // Fixture for conv.ovf.* taint propagation through overflow-checked conversions.
 public static class ConvOvfFixtures
 {

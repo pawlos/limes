@@ -386,6 +386,21 @@ public class SanitizerShapesTests
     }
 
     [Fact]
+    public void BinaryReaderReadBytes_TaintedLength_SinkFound()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+        var m = ctx.AllMethods().First(md =>
+            md.DeclaringType.FullName == "TaintAnalyzer.Tests.Fixtures.BinaryReaderFixtures"
+            && md.Name == "ReadBytesFromTaintedLength");
+        // param 0 = reader (instance), param 1 = length; taint param 1 (bitmask bit 1)
+        var summary = walker.Walk(m, taintedParamBitmask: 0b10);
+        summary.ReachedSink.ShouldBeTrue("BinaryReader.ReadBytes(int) with tainted length is an allocation sink");
+        summary.Hops.ShouldContain(h => h.Role == HopRole.Sink && h.SinkApi == SinkApi.NewArray,
+            "BinaryReader.ReadBytes should be reported as new_array sink");
+    }
+
+    [Fact]
     public void ConvOvf_DirectLongToNewarr_SinkFound()
     {
         using var ctx = AssemblyContext.Load(FixturePath);
