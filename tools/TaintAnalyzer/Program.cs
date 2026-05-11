@@ -18,6 +18,7 @@ public static class Program
         string? rulesPath = null;
         string? outputPath = null;
         bool noSymbols = false;
+        bool scan = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -35,6 +36,10 @@ public static class Program
             else if (a == "--no-symbols")
             {
                 noSymbols = true;
+            }
+            else if (a == "--scan")
+            {
+                scan = true;
             }
             else if (a.StartsWith("--", StringComparison.Ordinal))
             {
@@ -54,7 +59,19 @@ public static class Program
             }
         }
 
-        if (target is null || rulesPath is null)
+        if (target is null)
+        {
+            PrintUsage(stderr);
+            return 2;
+        }
+
+        bool rulesProvided = rulesPath is not null;
+        if (scan && rulesProvided)
+        {
+            stderr.WriteLine("error: --scan and --rules are mutually exclusive");
+            return 2;
+        }
+        if (!scan && !rulesProvided)
         {
             PrintUsage(stderr);
             return 2;
@@ -65,20 +82,9 @@ public static class Program
             stderr.WriteLine($"error: target assembly not found: {target}");
             return 1;
         }
-        if (!File.Exists(rulesPath))
+        if (!scan && !File.Exists(rulesPath))
         {
             stderr.WriteLine($"error: rules file not found: {rulesPath}");
-            return 1;
-        }
-
-        RulesDocument rules;
-        try
-        {
-            rules = RulesDocument.Load(File.ReadAllText(rulesPath));
-        }
-        catch (RulesDocumentException ex)
-        {
-            stderr.WriteLine($"error: rules: {ex.Message}");
             return 1;
         }
 
@@ -91,6 +97,28 @@ public static class Program
         {
             stderr.WriteLine($"error: assembly: {ex.Message}");
             return 1;
+        }
+
+        RulesDocument rules;
+        if (scan)
+        {
+            var graph = new ReverseCallGraph(context.Assembly);
+            var cfg = EnumeratorConfig.Default;
+            var sources = EntryPointEnumerator.Enumerate(context, cfg, graph).ToList();
+            var vulnId = "scan-" + Path.GetFileNameWithoutExtension(target);
+            rules = new RulesDocument { VulnId = vulnId, SourceMethods = sources };
+        }
+        else
+        {
+            try
+            {
+                rules = RulesDocument.Load(File.ReadAllText(rulesPath!));
+            }
+            catch (RulesDocumentException ex)
+            {
+                stderr.WriteLine($"error: rules: {ex.Message}");
+                return 1;
+            }
         }
 
         using (context)
@@ -199,6 +227,6 @@ public static class Program
 
     private static void PrintUsage(TextWriter stderr)
     {
-        stderr.WriteLine("usage: TaintAnalyzer <target.dll> --rules <rules.yaml> [--output <trace.yaml>] [--no-symbols]");
+        stderr.WriteLine("usage: TaintAnalyzer <target.dll> [--rules <rules.yaml> | --scan] [--output <trace.yaml>] [--no-symbols]");
     }
 }
