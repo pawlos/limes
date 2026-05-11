@@ -99,30 +99,33 @@ public static class Program
             return 1;
         }
 
-        RulesDocument rules;
-        if (scan)
-        {
-            var graph = new ReverseCallGraph(context.Assembly);
-            var cfg = EnumeratorConfig.Default;
-            var sources = EntryPointEnumerator.Enumerate(context, cfg, graph).ToList();
-            var vulnId = "scan-" + Path.GetFileNameWithoutExtension(target);
-            rules = new RulesDocument { VulnId = vulnId, SourceMethods = sources };
-        }
-        else
-        {
-            try
-            {
-                rules = RulesDocument.Load(File.ReadAllText(rulesPath!));
-            }
-            catch (RulesDocumentException ex)
-            {
-                stderr.WriteLine($"error: rules: {ex.Message}");
-                return 1;
-            }
-        }
-
         using (context)
         {
+            RulesDocument rules;
+            if (scan)
+            {
+                var graph = new ReverseCallGraph(context.Assembly);
+                var cfg = EnumeratorConfig.Default;
+                var sources = EntryPointEnumerator.Enumerate(context, cfg, graph).ToList();
+                rules = new RulesDocument
+                {
+                    VulnId = "scan-" + Path.GetFileNameWithoutExtension(target),
+                    SourceMethods = sources,
+                };
+            }
+            else
+            {
+                try
+                {
+                    rules = RulesDocument.Load(File.ReadAllText(rulesPath!));
+                }
+                catch (RulesDocumentException ex)
+                {
+                    stderr.WriteLine($"error: rules: {ex.Message}");
+                    return 1;
+                }
+            }
+
             var walker = new TaintWalker(context);
             var allHops = new List<HopRecord>();
 
