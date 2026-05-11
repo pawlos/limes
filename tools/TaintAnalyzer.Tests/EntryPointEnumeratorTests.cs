@@ -135,4 +135,52 @@ public class EntryPointEnumeratorTests
         entries.ShouldContain(e =>
             e.Signature.Contains("BinaryReaderShape::Read(System.IO.BinaryReader)"));
     }
+
+    [Fact]
+    public void Enumerate_ThisFieldShape_GatedByConfig()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+
+        // Default config: NOT included.
+        var withoutFlag = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+        withoutFlag.ShouldNotContain(e => e.Signature.Contains("StreamInputDecoder::ReadString"));
+
+        // With flag: included AND emits seed_this_fields.
+        var withFlag = EntryPointEnumerator
+            .Enumerate(ctx, new EnumeratorConfig { IncludeThisField = true }, graph)
+            .ToList();
+        var entry = withFlag.FirstOrDefault(e => e.Signature.Contains("StreamInputDecoder::ReadString"));
+        entry.ShouldNotBeNull();
+        entry!.SeedThisFields.ShouldNotBeNull();
+        entry.SeedThisFields!.ShouldContain("_input");
+    }
+
+    [Fact]
+    public void Enumerate_ThisFieldShape_RequiresMatchingTypeName()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, new EnumeratorConfig { IncludeThisField = true }, graph)
+            .ToList();
+
+        // NotADecoderType holds a Stream field but its name doesn't match any pattern.
+        entries.ShouldNotContain(e => e.Signature.Contains("NotADecoderType::ReadString"));
+    }
+
+    [Fact]
+    public void Enumerate_ThisFieldShape_RequiresByteSourceField()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, new EnumeratorConfig { IncludeThisField = true }, graph)
+            .ToList();
+
+        // EmptyDecoder matches the type-name pattern but has no Stream field.
+        entries.ShouldNotContain(e => e.Signature.Contains("EmptyDecoder::ReadString"));
+    }
 }

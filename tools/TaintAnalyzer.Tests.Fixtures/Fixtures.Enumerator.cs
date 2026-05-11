@@ -45,7 +45,8 @@ public class BinaryReaderShape
 
 // ---- This-field-shape fixtures ----
 
-public class DecoderWithStreamField
+// Name matches *Decoder glob; has a Stream field — must be picked up by this-field-shape.
+public class StreamInputDecoder
 {
     private readonly System.IO.Stream _input = System.IO.Stream.Null;
     public string ReadString() => "";

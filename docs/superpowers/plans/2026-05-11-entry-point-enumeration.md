@@ -259,7 +259,7 @@ public class BinaryReaderShape
 
 // ---- This-field-shape fixtures ----
 
-public class DecoderWithStreamField
+public class StreamInputDecoder
 {
     // ReSharper disable once NotAccessedField.Local — Cecil sees the field regardless.
     private readonly System.IO.Stream _input = System.IO.Stream.Null;
@@ -1409,13 +1409,13 @@ public void Enumerate_ThisFieldShape_GatedByConfig()
     var withoutFlag = EntryPointEnumerator
         .Enumerate(ctx, EnumeratorConfig.Default, graph)
         .ToList();
-    withoutFlag.ShouldNotContain(e => e.Signature.Contains("DecoderWithStreamField::ReadString"));
+    withoutFlag.ShouldNotContain(e => e.Signature.Contains("StreamInputDecoder::ReadString"));
 
     // With flag: included AND emits seed_this_fields.
     var withFlag = EntryPointEnumerator
         .Enumerate(ctx, new EnumeratorConfig { IncludeThisField = true }, graph)
         .ToList();
-    var entry = withFlag.FirstOrDefault(e => e.Signature.Contains("DecoderWithStreamField::ReadString"));
+    var entry = withFlag.FirstOrDefault(e => e.Signature.Contains("StreamInputDecoder::ReadString"));
     entry.ShouldNotBeNull();
     entry!.SeedThisFields.ShouldNotBeNull();
     entry.SeedThisFields!.ShouldContain("_input");

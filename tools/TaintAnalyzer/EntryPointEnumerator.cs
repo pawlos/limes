@@ -11,6 +11,8 @@ public static class EntryPointEnumerator
         ReverseCallGraph callGraph)
     {
         var byteSourceSet = new HashSet<string>(config.ByteSourceTypes, StringComparer.Ordinal);
+        // Cache type-name match per declaring type (computed once per type, queried per method).
+        var thisFieldCache = new Dictionary<TypeDefinition, IReadOnlyList<string>?>();
 
         foreach (var type in AllTypes(context.Assembly))
         {
@@ -23,9 +25,64 @@ public static class EntryPointEnumerator
                 if (MatchesParameterShape(method, byteSourceSet))
                 {
                     yield return new SourceMethodEntry { Signature = BuildShortSignature(method) };
+                    continue;
+                }
+
+                if (config.IncludeThisField && !method.IsStatic)
+                {
+                    if (!thisFieldCache.TryGetValue(type, out var seedFields))
+                    {
+                        seedFields = MatchThisFieldShape(type, config, byteSourceSet);
+                        thisFieldCache[type] = seedFields;
+                    }
+                    if (seedFields is not null)
+                    {
+                        yield return new SourceMethodEntry
+                        {
+                            Signature = BuildShortSignature(method),
+                            SeedThisFields = seedFields.ToList(),
+                        };
+                    }
                 }
             }
         }
+    }
+
+    // Returns the list of field names matching ByteSourceTypes if the type's name
+    // matches a DecoderTypeNamePattern. Returns null when this-field-shape doesn't
+    // apply to this type.
+    private static IReadOnlyList<string>? MatchThisFieldShape(
+        TypeDefinition type, EnumeratorConfig config, HashSet<string> byteSourceTypes)
+    {
+        bool nameMatches = config.DecoderTypeNamePatterns.Any(p => GlobMatcher.Matches(p, type.Name));
+        if (!nameMatches) return null;
+
+        var matchingFields = type.Fields
+            .Where(f => FieldTypeMatchesByteSource(f, byteSourceTypes))
+            .Select(f => f.Name)
+            .ToList();
+
+        return matchingFields.Count > 0 ? matchingFields : null;
+    }
+
+    private static bool FieldTypeMatchesByteSource(FieldDefinition f, HashSet<string> byteSourceTypes)
+    {
+        if (byteSourceTypes.Contains(f.FieldType.FullName)) return true;
+        // Base-type walk for Stream subclass fields too.
+        TypeDefinition? def;
+        try { def = f.FieldType.Resolve(); }
+        catch { def = null; }
+        var current = def?.BaseType;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        while (current is not null && seen.Add(current.FullName))
+        {
+            if (byteSourceTypes.Contains(current.FullName)) return true;
+            TypeDefinition? baseDef;
+            try { baseDef = current.Resolve(); }
+            catch { baseDef = null; }
+            current = baseDef?.BaseType;
+        }
+        return false;
     }
 
     private static bool MatchesParameterShape(MethodDefinition m, HashSet<string> byteSourceTypes)
