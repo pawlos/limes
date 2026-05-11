@@ -59,17 +59,6 @@ public static class EntryPointEnumerator
         return false;
     }
 
-    // Strip `modreq(...)` decoration that Cecil adds for some params (kept for safety
-    // in case modreq appears in the base-type chain during resolution).
-    private static string StripModifiers(string fullName)
-    {
-        var idx = fullName.IndexOf(" modreq", StringComparison.Ordinal);
-        if (idx >= 0) fullName = fullName.Substring(0, idx);
-        if (fullName.EndsWith("&", StringComparison.Ordinal))
-            fullName = fullName.Substring(0, fullName.Length - 1);
-        return fullName;
-    }
-
     // Reuse the canonical signature builder from AssemblyContext (made internal in T7)
     // so emitted signatures round-trip through FindMethod exactly.
     private static string BuildShortSignature(MethodDefinition m)
