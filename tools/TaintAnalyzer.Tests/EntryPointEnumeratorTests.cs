@@ -46,4 +46,55 @@ public class EntryPointEnumeratorTests
         entries.ShouldNotContain(e => e.Signature.Contains("set_Backing"));
         entries.ShouldNotContain(e => e.Signature.Contains("get_Backing"));
     }
+
+    [Fact]
+    public void Enumerate_MatchesStreamParameter()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldContain(e =>
+            e.Signature.Contains("StreamReaderShape::Read(System.IO.Stream)"));
+    }
+
+    [Fact]
+    public void Enumerate_MatchesSpanByteParameter()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldContain(e =>
+            e.Signature.Contains("SpanByteReaderShape::Read") &&
+            e.Signature.Contains("System.Byte"));
+    }
+
+    [Fact]
+    public void Enumerate_DoesNotMatchString()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldNotContain(e => e.Signature.Contains("StringReaderShape::Read"));
+    }
+
+    [Fact]
+    public void Enumerate_DoesNotMatchSpanInt()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldNotContain(e => e.Signature.Contains("SpanIntReaderShape::Read"));
+    }
 }

@@ -10,6 +10,8 @@ public static class EntryPointEnumerator
         EnumeratorConfig config,
         ReverseCallGraph callGraph)
     {
+        var byteSourceSet = new HashSet<string>(config.ByteSourceTypes, StringComparer.Ordinal);
+
         foreach (var type in AllTypes(context.Assembly))
         {
             if (IsCompilerGeneratedType(type)) continue;
@@ -17,29 +19,50 @@ public static class EntryPointEnumerator
             foreach (var method in type.Methods)
             {
                 if (HardReject(method)) continue;
-                // Candidate predicates and visibility filter come in Tasks 8–12.
-                // For now: reject everything (skeleton).
+
+                if (MatchesParameterShape(method, byteSourceSet))
+                {
+                    yield return new SourceMethodEntry { Signature = BuildShortSignature(method) };
+                }
             }
         }
-        yield break;
     }
+
+    private static bool MatchesParameterShape(MethodDefinition m, HashSet<string> byteSourceTypes)
+    {
+        foreach (var p in m.Parameters)
+        {
+            var typeFullName = StripModifiers(p.ParameterType.FullName);
+            if (byteSourceTypes.Contains(typeFullName)) return true;
+        }
+        return false;
+    }
+
+    // Strip `&` (byref) and `modreq(...)` decoration that Cecil adds for ref/in/out params.
+    private static string StripModifiers(string fullName)
+    {
+        var idx = fullName.IndexOf(" modreq", StringComparison.Ordinal);
+        if (idx >= 0) fullName = fullName.Substring(0, idx);
+        if (fullName.EndsWith("&", StringComparison.Ordinal))
+            fullName = fullName.Substring(0, fullName.Length - 1);
+        return fullName;
+    }
+
+    // Reuse the canonical signature builder from AssemblyContext (made internal in T7)
+    // so emitted signatures round-trip through FindMethod exactly.
+    private static string BuildShortSignature(MethodDefinition m)
+        => AssemblyContext.BuildShortSignature(m);
 
     private static bool HardReject(MethodDefinition m)
     {
-        // Compiler-generated.
         if (m.HasCustomAttributes && m.CustomAttributes.Any(a =>
                 a.AttributeType.FullName == typeof(CompilerGeneratedAttribute).FullName))
             return true;
-
-        // Special methods: .ctor, .cctor, op_*, property getters/setters, events.
         if (m.IsConstructor) return true;
-        if (m.IsSpecialName) return true;        // op_*, property accessors, event add/remove
+        if (m.IsSpecialName) return true;
         if (m.IsGetter || m.IsSetter) return true;
         if (m.IsAddOn || m.IsRemoveOn || m.IsFire || m.IsOther) return true;
-
-        // No body — abstract, P/Invoke, runtime.
         if (m.Body is null) return true;
-
         return false;
     }
 
@@ -48,7 +71,6 @@ public static class EntryPointEnumerator
         if (t.HasCustomAttributes && t.CustomAttributes.Any(a =>
                 a.AttributeType.FullName == typeof(CompilerGeneratedAttribute).FullName))
             return true;
-        // <PrivateImplementationDetails>, <>c__DisplayClass*, <X>d__N
         if (t.Name.StartsWith("<", StringComparison.Ordinal)) return true;
         return false;
     }
