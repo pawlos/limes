@@ -54,6 +54,34 @@ public class ReverseCallGraphTests
         graph.IsReachableFromPublic(pub!).ShouldBeTrue();
     }
 
+    [Fact]
+    public void PrivateMethod_NotReachable()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+
+        var priv = FindMethod(ctx.Assembly,
+            "TaintAnalyzer.Tests.Fixtures.Enumerator.HasPrivateAndProtected",
+            "PrivateMethod");
+        priv.ShouldNotBeNull();
+
+        graph.IsReachableFromPublic(priv!).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ProtectedMethod_NotReachable()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+
+        var prot = FindMethod(ctx.Assembly,
+            "TaintAnalyzer.Tests.Fixtures.Enumerator.HasPrivateAndProtected",
+            "ProtectedMethod");
+        prot.ShouldNotBeNull();
+
+        graph.IsReachableFromPublic(prot!).ShouldBeFalse();
+    }
+
     private static MethodDefinition? FindMethod(AssemblyDefinition asm, string typeFullName, string methodName)
     {
         foreach (var t in asm.MainModule.Types.SelectMany(Flatten))
