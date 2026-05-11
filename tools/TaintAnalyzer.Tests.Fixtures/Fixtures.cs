@@ -843,3 +843,116 @@ public static class ConvOvfFixtures
         return new byte[n];      // taint through local before conv.ovf.i
     }
 }
+
+// ============================================================================
+// EnumeratorFixtures — types for EntryPointEnumerator tests.
+// Visible to Cecil only (the test project does not reference Fixtures source);
+// internal types are deliberately reachable / unreachable per their name.
+// (All types live in TaintAnalyzer.Tests.Fixtures — the file-scoped namespace
+// above — because C# forbids mixing file-scoped and block-scoped namespaces.)
+// ============================================================================
+
+// ---- Parameter-shape fixtures ----
+
+public class StreamReaderShape
+{
+    public void Read(System.IO.Stream s) { }
+}
+
+public class FileStreamReaderShape
+{
+    public void Read(System.IO.FileStream s) { }
+}
+
+public class SpanByteReaderShape
+{
+    public void Read(System.ReadOnlySpan<byte> s) { }
+}
+
+public class StringReaderShape
+{
+    // Should NOT be picked up by default config (string is not in defaults).
+    public void Read(string s) { }
+}
+
+public class SpanIntReaderShape
+{
+    // Should NOT be picked up (ReadOnlySpan<int> ≠ ReadOnlySpan<byte>).
+    public void Read(System.ReadOnlySpan<int> s) { }
+}
+
+public class ByteArrayReaderShape
+{
+    public void Read(byte[] s) { }
+}
+
+public class BinaryReaderShape
+{
+    public void Read(System.IO.BinaryReader r) { }
+}
+
+// ---- This-field-shape fixtures ----
+
+public class DecoderWithStreamField
+{
+    // ReSharper disable once NotAccessedField.Local — Cecil sees the field regardless.
+    private readonly System.IO.Stream _input = System.IO.Stream.Null;
+    public string ReadString() => "";
+}
+
+public class NotADecoderType
+{
+    private readonly System.IO.Stream _input = System.IO.Stream.Null;
+    public string ReadString() => "";
+}
+
+public class DecoderWithoutStreamField
+{
+    // No byte-source field — should NOT match this-field even with --include-this-field.
+    public string ReadString() => "";
+}
+
+// ---- Visibility-filter fixtures ----
+
+public class PublicEntryPoint
+{
+    public void TakesStream(System.IO.Stream s) => InternalReachable.Helper(s);
+}
+
+internal static class InternalReachable
+{
+    // Called by PublicEntryPoint.TakesStream — must be reachable from public.
+    internal static void Helper(System.IO.Stream s) { }
+}
+
+internal static class InternalOrphan
+{
+    // Not called by anyone — must be rejected even though it matches parameter-shape.
+    internal static void Orphan(System.IO.Stream s) { }
+}
+
+public class HasPrivateAndProtected
+{
+    private void PrivateMethod(System.IO.Stream s) { }
+    protected void ProtectedMethod(System.IO.Stream s) { }
+}
+
+// ---- Hard-filter fixtures ----
+
+public class HasCtorWithStream
+{
+    public HasCtorWithStream(System.IO.Stream s) { }
+    public void Op_NotMatchedEither(System.IO.Stream s) { }
+}
+
+public class HasPropertyTakingStream
+{
+    private System.IO.Stream _backing = System.IO.Stream.Null;
+    // The setter takes Stream but is a special-name method — must be rejected.
+    public System.IO.Stream Backing { get => _backing; set => _backing = value; }
+}
+
+public abstract class HasAbstractMethod
+{
+    public abstract void Read(System.IO.Stream s);
+}
