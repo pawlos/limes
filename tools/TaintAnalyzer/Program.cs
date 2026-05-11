@@ -19,6 +19,8 @@ public static class Program
         string? outputPath = null;
         bool noSymbols = false;
         bool scan = false;
+        bool includeThisField = false;
+        string? enumeratorConfigPath = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -40,6 +42,15 @@ public static class Program
             else if (a == "--scan")
             {
                 scan = true;
+            }
+            else if (a == "--include-this-field")
+            {
+                includeThisField = true;
+            }
+            else if (a == "--enumerator-config")
+            {
+                if (++i >= args.Length) { stderr.WriteLine("error: --enumerator-config requires a path"); return 2; }
+                enumeratorConfigPath = args[i];
             }
             else if (a.StartsWith("--", StringComparison.Ordinal))
             {
@@ -77,6 +88,12 @@ public static class Program
             return 2;
         }
 
+        if (!scan && (includeThisField || enumeratorConfigPath is not null))
+        {
+            stderr.WriteLine("error: --include-this-field and --enumerator-config require --scan");
+            return 2;
+        }
+
         if (!File.Exists(target))
         {
             stderr.WriteLine($"error: target assembly not found: {target}");
@@ -105,7 +122,42 @@ public static class Program
             if (scan)
             {
                 var graph = new ReverseCallGraph(context.Assembly);
-                var cfg = EnumeratorConfig.Default;
+                EnumeratorConfig cfg;
+                if (enumeratorConfigPath is not null)
+                {
+                    if (!File.Exists(enumeratorConfigPath))
+                    {
+                        stderr.WriteLine($"error: enumerator-config file not found: {enumeratorConfigPath}");
+                        return 1;
+                    }
+                    try
+                    {
+                        cfg = EnumeratorConfig.Load(File.ReadAllText(enumeratorConfigPath));
+                    }
+                    catch (EnumeratorConfigException ex)
+                    {
+                        stderr.WriteLine($"error: enumerator-config: {ex.Message}");
+                        return 1;
+                    }
+                }
+                else
+                {
+                    cfg = EnumeratorConfig.Default;
+                }
+
+                if (includeThisField)
+                {
+                    cfg = new EnumeratorConfig
+                    {
+                        ByteSourceTypes = cfg.ByteSourceTypes,
+                        DecoderTypeNamePatterns = cfg.DecoderTypeNamePatterns,
+                        ExcludeNamespaces = cfg.ExcludeNamespaces,
+                        ExcludeTypePatterns = cfg.ExcludeTypePatterns,
+                        ExcludeMethodPatterns = cfg.ExcludeMethodPatterns,
+                        IncludeThisField = true,
+                    };
+                }
+
                 var sources = EntryPointEnumerator.Enumerate(context, cfg, graph).ToList();
                 rules = new RulesDocument
                 {
