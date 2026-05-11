@@ -94,6 +94,8 @@ public class EnumeratorConfigTests
     {
         const string yaml = "byte_source_types: [unterminated";
 
-        Should.Throw<EnumeratorConfigException>(() => EnumeratorConfig.Load(yaml));
+        var ex = Should.Throw<EnumeratorConfigException>(() => EnumeratorConfig.Load(yaml));
+        ex.InnerException.ShouldNotBeNull();
+        ex.InnerException.ShouldBeAssignableTo<YamlDotNet.Core.YamlException>();
     }
 }

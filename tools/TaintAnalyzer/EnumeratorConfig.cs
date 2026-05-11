@@ -1,3 +1,7 @@
+using YamlDotNet.Core;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
+
 namespace TaintAnalyzer;
 
 public sealed class EnumeratorConfig
@@ -32,6 +36,12 @@ public sealed class EnumeratorConfig
     private static readonly string[] s_defaultExcludeMethodPatterns =
         { "ToString", "GetHashCode", "Equals" };
 
+    private static readonly IDeserializer s_deserializer =
+        new DeserializerBuilder()
+            .IgnoreUnmatchedProperties()
+            .WithNamingConvention(UnderscoredNamingConvention.Instance)
+            .Build();
+
     public static EnumeratorConfig Default { get; } = new();
 
     public static EnumeratorConfig Load(string yaml)
@@ -44,13 +54,9 @@ public sealed class EnumeratorConfig
         Raw? raw;
         try
         {
-            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
-                .IgnoreUnmatchedProperties()
-                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance)
-                .Build();
-            raw = deserializer.Deserialize<Raw>(yaml);
+            raw = s_deserializer.Deserialize<Raw>(yaml);
         }
-        catch (YamlDotNet.Core.YamlException ex)
+        catch (YamlException ex)
         {
             throw new EnumeratorConfigException($"malformed enumerator-config: {ex.Message}", ex);
         }
