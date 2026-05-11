@@ -85,4 +85,56 @@ public class ProgramScanFlagTests
         rc.ShouldBe(1);
         stderr.ToString().ShouldContain("not found");
     }
+
+    [Fact]
+    public void EmitRules_RequiresScan()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var rc = Program.Run(
+            new[] { FixturePath, "--rules", "x.yaml", "--emit-rules", "out.yaml" },
+            stdout, stderr);
+
+        rc.ShouldBe(2);
+    }
+
+    [Fact]
+    public void EmitRules_AndOutput_AreMutuallyExclusive()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var rc = Program.Run(
+            new[] { FixturePath, "--scan", "--emit-rules", "out.yaml", "--output", "trace.yaml" },
+            stdout, stderr);
+
+        rc.ShouldBe(2);
+        stderr.ToString().ShouldContain("--emit-rules");
+    }
+
+    [Fact]
+    public void EmitRules_WritesFileAndExitsWithoutWalking()
+    {
+        var outPath = Path.Combine(Path.GetTempPath(), $"emit-{Guid.NewGuid()}.yaml");
+        try
+        {
+            var stdout = new StringWriter();
+            var stderr = new StringWriter();
+            var rc = Program.Run(
+                new[] { FixturePath, "--scan", "--emit-rules", outPath },
+                stdout, stderr);
+
+            rc.ShouldBe(0);
+            File.Exists(outPath).ShouldBeTrue();
+            var content = File.ReadAllText(outPath);
+            content.ShouldContain("vuln_id");
+            // Trace YAML is NOT emitted to stdout when --emit-rules is used.
+            stdout.ToString().ShouldNotContain("hop:");
+        }
+        finally
+        {
+            if (File.Exists(outPath)) File.Delete(outPath);
+        }
+    }
 }

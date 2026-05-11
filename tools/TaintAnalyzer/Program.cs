@@ -17,6 +17,7 @@ public static class Program
         string? target = null;
         string? rulesPath = null;
         string? outputPath = null;
+        string? emitRulesPath = null;
         bool noSymbols = false;
         bool scan = false;
         bool includeThisField = false;
@@ -51,6 +52,11 @@ public static class Program
             {
                 if (++i >= args.Length) { stderr.WriteLine("error: --enumerator-config requires a path"); return 2; }
                 enumeratorConfigPath = args[i];
+            }
+            else if (a == "--emit-rules")
+            {
+                if (++i >= args.Length) { stderr.WriteLine("error: --emit-rules requires a path"); return 2; }
+                emitRulesPath = args[i];
             }
             else if (a.StartsWith("--", StringComparison.Ordinal))
             {
@@ -91,6 +97,16 @@ public static class Program
         if (!scan && (includeThisField || enumeratorConfigPath is not null))
         {
             stderr.WriteLine("error: --include-this-field and --enumerator-config require --scan");
+            return 2;
+        }
+        if (!scan && emitRulesPath is not null)
+        {
+            stderr.WriteLine("error: --emit-rules requires --scan");
+            return 2;
+        }
+        if (emitRulesPath is not null && outputPath is not null)
+        {
+            stderr.WriteLine("error: --emit-rules and --output are mutually exclusive (--emit-rules is terminal)");
             return 2;
         }
 
@@ -164,6 +180,13 @@ public static class Program
                     VulnId = "scan-" + Path.GetFileNameWithoutExtension(target),
                     SourceMethods = sources,
                 };
+
+                if (emitRulesPath is not null)
+                {
+                    var yamlOut = RulesYamlEmitter.Emit(rules.VulnId!, rules.SourceMethods!);
+                    File.WriteAllText(emitRulesPath, yamlOut);
+                    return 0;
+                }
             }
             else
             {
