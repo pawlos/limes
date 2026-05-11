@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Regression-locks the enumerator output for Nerdbank.MessagePack 1.1.25.
+# Compares fresh --scan output against rules.yaml.expected.
+# Skips silently when artifacts/nbmp-1.1.25 isn't present (user's local artefact).
+set -euo pipefail
+
+cd "$(dirname "$0")"
+REPO_ROOT="$(cd ../.. && pwd)"
+NBMP_DLL="$REPO_ROOT/artifacts/nbmp-1.1.25/Nerdbank.MessagePack.dll"
+ANALYZER_BIN="$REPO_ROOT/tools/TaintAnalyzer/bin/Release/net10.0/TaintAnalyzer"
+ANALYZER_DLL="$REPO_ROOT/tools/TaintAnalyzer/bin/Release/net10.0/TaintAnalyzer.dll"
+
+if [ ! -f "$NBMP_DLL" ]; then
+    echo "skip: NBMP DLL not at $NBMP_DLL (artifacts dir not materialised)"
+    exit 0
+fi
+
+if [ ! -f "$ANALYZER_DLL" ]; then
+    echo "error: build the analyzer first: cd tools/TaintAnalyzer && dotnet build -c Release" >&2
+    exit 1
+fi
+
+ACTUAL=$(mktemp)
+trap 'rm -f "$ACTUAL"' EXIT
+
+if [ -x "$ANALYZER_BIN" ]; then
+    "$ANALYZER_BIN" "$NBMP_DLL" --scan --emit-rules "$ACTUAL"
+else
+    dotnet "$ANALYZER_DLL" "$NBMP_DLL" --scan --emit-rules "$ACTUAL"
+fi
+
+if ! diff -u rules.yaml.expected "$ACTUAL"; then
+    echo "error: scan-nbmp-1.1.25 rules.yaml output drifted" >&2
+    exit 1
+fi
+echo "scan-nbmp-1.1.25: locked rules.yaml matches"
