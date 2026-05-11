@@ -1,0 +1,49 @@
+using Mono.Cecil;
+using Shouldly;
+using TaintAnalyzer;
+
+namespace TaintAnalyzer.Tests;
+
+public class EntryPointEnumeratorTests
+{
+    private static string FixturePath =>
+        Path.Combine(AppContext.BaseDirectory, "Fixtures", "TaintAnalyzer.Tests.Fixtures.dll");
+
+    [Fact]
+    public void Enumerate_RejectsCtorTakingStream()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        // .ctor in HasCtorWithStream takes Stream but must be rejected.
+        entries.ShouldNotContain(e => e.Signature.Contains("HasCtorWithStream::.ctor"));
+    }
+
+    [Fact]
+    public void Enumerate_RejectsAbstractMethod()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldNotContain(e => e.Signature.Contains("HasAbstractMethod::Read"));
+    }
+
+    [Fact]
+    public void Enumerate_RejectsPropertyAccessors()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldNotContain(e => e.Signature.Contains("set_Backing"));
+        entries.ShouldNotContain(e => e.Signature.Contains("get_Backing"));
+    }
+}

@@ -116,7 +116,7 @@ public sealed class AssemblyContext : IDisposable
 
     public void Dispose() => Assembly.Dispose();
 
-    private static string BuildShortSignature(MethodDefinition m)
+    internal static string BuildShortSignature(MethodDefinition m)
     {
         var ps = new List<string>(m.Parameters.Count);
         foreach (var p in m.Parameters)
