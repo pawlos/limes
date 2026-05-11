@@ -272,9 +272,10 @@ public class NotADecoderType
     public string ReadString() => "";
 }
 
-public class DecoderWithoutStreamField
+public class EmptyDecoder
 {
-    // No byte-source field — should NOT match this-field even with --include-this-field.
+    // Name matches the *Decoder suffix glob, but no byte-source field —
+    // should NOT match this-field even with --include-this-field.
     public string ReadString() => "";
 }
 
@@ -1440,8 +1441,8 @@ public void Enumerate_ThisFieldShape_RequiresByteSourceField()
         .Enumerate(ctx, new EnumeratorConfig { IncludeThisField = true }, graph)
         .ToList();
 
-    // DecoderWithoutStreamField matches the type-name pattern but has no Stream field.
-    entries.ShouldNotContain(e => e.Signature.Contains("DecoderWithoutStreamField::ReadString"));
+    // EmptyDecoder matches the type-name pattern but has no Stream field.
+    entries.ShouldNotContain(e => e.Signature.Contains("EmptyDecoder::ReadString"));
 }
 ```
 

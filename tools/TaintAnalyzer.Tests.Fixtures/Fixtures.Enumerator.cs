@@ -55,7 +55,9 @@ public class NotADecoderType
     public string ReadString() => "";
 }
 
-public class DecoderWithoutStreamField
+// Name matches the *Decoder suffix glob, but the type has no byte-source field —
+// must NOT be picked up by this-field-shape even with --include-this-field.
+public class EmptyDecoder
 {
     public string ReadString() => "";
 }
