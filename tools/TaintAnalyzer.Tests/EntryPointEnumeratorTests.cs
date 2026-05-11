@@ -183,4 +183,41 @@ public class EntryPointEnumeratorTests
         // EmptyDecoder matches the type-name pattern but has no Stream field.
         entries.ShouldNotContain(e => e.Signature.Contains("EmptyDecoder::ReadString"));
     }
+
+    [Fact]
+    public void Enumerate_RejectsPrivateAndProtectedMethods()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldNotContain(e => e.Signature.Contains("HasPrivateAndProtected::PrivateMethod"));
+        entries.ShouldNotContain(e => e.Signature.Contains("HasPrivateAndProtected::ProtectedMethod"));
+    }
+
+    [Fact]
+    public void Enumerate_AcceptsReachableInternal()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldContain(e => e.Signature.Contains("InternalReachable::Helper"));
+    }
+
+    [Fact]
+    public void Enumerate_RejectsOrphanInternal()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldNotContain(e => e.Signature.Contains("InternalOrphan::Orphan"));
+    }
 }

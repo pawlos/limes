@@ -21,6 +21,7 @@ public static class EntryPointEnumerator
             foreach (var method in type.Methods)
             {
                 if (HardReject(method)) continue;
+                if (VisibilityReject(method, callGraph)) continue;
 
                 if (MatchesParameterShape(method, byteSourceSet))
                 {
@@ -120,6 +121,27 @@ public static class EntryPointEnumerator
     // so emitted signatures round-trip through FindMethod exactly.
     private static string BuildShortSignature(MethodDefinition m)
         => AssemblyContext.BuildShortSignature(m);
+
+    private static bool VisibilityReject(MethodDefinition m, ReverseCallGraph callGraph)
+    {
+        // Public method on a public type → always accept.
+        if (m.IsPublic && m.DeclaringType.IsPublic) return false;
+
+        // Internal: accept only if reachable from some public method.
+        if (m.IsAssembly)
+        {
+            return !callGraph.IsReachableFromPublic(m);
+        }
+
+        // Public method on an internal type → treat as internal: reachability check.
+        if (m.IsPublic && !m.DeclaringType.IsPublic)
+        {
+            return !callGraph.IsReachableFromPublic(m);
+        }
+
+        // Private, protected, protected-internal, private-protected: reject.
+        return true;
+    }
 
     private static bool HardReject(MethodDefinition m)
     {
