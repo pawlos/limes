@@ -20,6 +20,7 @@ public static class Program
         string? emitRulesPath = null;
         bool noSymbols = false;
         bool scan = false;
+        bool progress = false;
         bool includeThisField = false;
         string? enumeratorConfigPath = null;
 
@@ -43,6 +44,10 @@ public static class Program
             else if (a == "--scan")
             {
                 scan = true;
+            }
+            else if (a == "--progress")
+            {
+                progress = true;
             }
             else if (a == "--include-this-field")
             {
@@ -134,6 +139,9 @@ public static class Program
 
         using (context)
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            int sourcesCount = 0;
+
             RulesDocument rules;
             if (scan)
             {
@@ -175,6 +183,15 @@ public static class Program
                 }
 
                 var sources = EntryPointEnumerator.Enumerate(context, cfg, graph).ToList();
+                var enumElapsed = sw.ElapsedMilliseconds;
+                sourcesCount = sources.Count;
+
+                if (progress)
+                {
+                    int methodCount = context.Assembly.MainModule.Types.Sum(CountMethods);
+                    stderr.WriteLine($"[scan] enumerated {sourcesCount} candidates from {methodCount} methods ({enumElapsed}ms)");
+                }
+
                 rules = new RulesDocument
                 {
                     VulnId = "scan-" + Path.GetFileNameWithoutExtension(target),
@@ -258,6 +275,12 @@ public static class Program
                 allHops.AddRange(summary.Hops);
             }
 
+            if (progress && scan)
+            {
+                int findings = allHops.Count(h => h.Role == HopRole.Sink);
+                stderr.WriteLine($"[scan] complete: {findings} findings across {sourcesCount} candidates ({sw.ElapsedMilliseconds}ms)");
+            }
+
             var yaml = TraceEmitter.Emit(rules, allHops, Array.Empty<EmittedSanitizerAbsence>());
 
             if (outputPath is null)
@@ -272,6 +295,9 @@ public static class Program
 
         return 0;
     }
+
+    private static int CountMethods(Mono.Cecil.TypeDefinition t)
+        => t.Methods.Count + t.NestedTypes.Sum(CountMethods);
 
     private static string? SuggestNearest(AssemblyContext ctx, string sig)
     {

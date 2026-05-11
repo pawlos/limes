@@ -137,4 +137,31 @@ public class ProgramScanFlagTests
             if (File.Exists(outPath)) File.Delete(outPath);
         }
     }
+
+    [Fact]
+    public void Progress_EmitsScanDiagnosticsToStderr()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var rc = Program.Run(
+            new[] { FixturePath, "--scan", "--progress" }, stdout, stderr);
+
+        rc.ShouldBe(0);
+        var err = stderr.ToString();
+        err.ShouldContain("[scan] enumerated");
+        err.ShouldContain("[scan] complete:");
+    }
+
+    [Fact]
+    public void Progress_IsSilentByDefault()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var rc = Program.Run(new[] { FixturePath, "--scan" }, stdout, stderr);
+
+        rc.ShouldBe(0);
+        stderr.ToString().ShouldNotContain("[scan]");
+    }
 }
