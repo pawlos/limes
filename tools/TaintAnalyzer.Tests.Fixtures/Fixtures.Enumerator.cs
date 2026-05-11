@@ -23,11 +23,13 @@ public class SpanByteReaderShape
 
 public class StringReaderShape
 {
+    // Should NOT be picked up by default config (string is not in defaults).
     public void Read(string s) { }
 }
 
 public class SpanIntReaderShape
 {
+    // Should NOT be picked up (ReadOnlySpan<int> ≠ ReadOnlySpan<byte>).
     public void Read(System.ReadOnlySpan<int> s) { }
 }
 
@@ -90,7 +92,9 @@ public class HasPrivateAndProtected
 public class HasCtorWithStream
 {
     public HasCtorWithStream(System.IO.Stream s) { }
-    public void Op_NotMatchedEither(System.IO.Stream s) { }
+    // Normal public method co-located with the ctor; the enumerator must accept
+    // this even though the ctor on the same type is hard-rejected.
+    public void NormalMethod(System.IO.Stream s) { }
 }
 
 public class HasPropertyTakingStream
