@@ -33,4 +33,54 @@ public sealed class EnumeratorConfig
         { "ToString", "GetHashCode", "Equals" };
 
     public static EnumeratorConfig Default { get; } = new();
+
+    public static EnumeratorConfig Load(string yaml)
+    {
+        if (string.IsNullOrWhiteSpace(yaml))
+        {
+            return Default;
+        }
+
+        Raw? raw;
+        try
+        {
+            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+                .IgnoreUnmatchedProperties()
+                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance)
+                .Build();
+            raw = deserializer.Deserialize<Raw>(yaml);
+        }
+        catch (YamlDotNet.Core.YamlException ex)
+        {
+            throw new EnumeratorConfigException($"malformed enumerator-config: {ex.Message}", ex);
+        }
+
+        raw ??= new Raw();
+        return new EnumeratorConfig
+        {
+            ByteSourceTypes = (IReadOnlyList<string>?)raw.ByteSourceTypes ?? s_defaultByteSourceTypes,
+            DecoderTypeNamePatterns = (IReadOnlyList<string>?)raw.DecoderTypeNamePatterns ?? s_defaultDecoderTypeNamePatterns,
+            ExcludeNamespaces = (IReadOnlyList<string>?)raw.ExcludeNamespaces ?? s_defaultExcludeNamespaces,
+            ExcludeTypePatterns = (IReadOnlyList<string>?)raw.ExcludeTypePatterns ?? s_defaultExcludeTypePatterns,
+            ExcludeMethodPatterns = (IReadOnlyList<string>?)raw.ExcludeMethodPatterns ?? s_defaultExcludeMethodPatterns,
+        };
+    }
+
+    // Private helper class for YAML deserialization. Lists are nullable so we can
+    // distinguish "key missing" (fall back to default) from "key present but empty"
+    // (use the empty list).
+    private sealed class Raw
+    {
+        public List<string>? ByteSourceTypes { get; set; }
+        public List<string>? DecoderTypeNamePatterns { get; set; }
+        public List<string>? ExcludeNamespaces { get; set; }
+        public List<string>? ExcludeTypePatterns { get; set; }
+        public List<string>? ExcludeMethodPatterns { get; set; }
+    }
+}
+
+public sealed class EnumeratorConfigException : Exception
+{
+    public EnumeratorConfigException(string message) : base(message) { }
+    public EnumeratorConfigException(string message, Exception inner) : base(message, inner) { }
 }

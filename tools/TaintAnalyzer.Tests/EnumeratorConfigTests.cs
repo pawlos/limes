@@ -39,4 +39,61 @@ public class EnumeratorConfigTests
     {
         EnumeratorConfig.Default.IncludeThisField.ShouldBeFalse();
     }
+
+    [Fact]
+    public void Load_EmptyDocument_EqualsDefault()
+    {
+        var cfg = EnumeratorConfig.Load("");
+
+        cfg.ByteSourceTypes.ShouldBe(EnumeratorConfig.Default.ByteSourceTypes);
+        cfg.DecoderTypeNamePatterns.ShouldBe(EnumeratorConfig.Default.DecoderTypeNamePatterns);
+        cfg.ExcludeNamespaces.ShouldBe(EnumeratorConfig.Default.ExcludeNamespaces);
+    }
+
+    [Fact]
+    public void Load_PartialOverride_KeepsOtherDefaults()
+    {
+        const string yaml = """
+            byte_source_types:
+              - My.Custom.Stream
+            """;
+
+        var cfg = EnumeratorConfig.Load(yaml);
+
+        cfg.ByteSourceTypes.ShouldBe(new[] { "My.Custom.Stream" });
+        // Defaults preserved for unspecified keys.
+        cfg.ExcludeNamespaces.ShouldBe(new[] { "System.*", "Microsoft.*" });
+    }
+
+    [Fact]
+    public void Load_EmptyExcludeList_AllowsAllNamespaces()
+    {
+        const string yaml = "exclude_namespaces: []\n";
+
+        var cfg = EnumeratorConfig.Load(yaml);
+
+        cfg.ExcludeNamespaces.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Load_UnknownKeys_AreIgnored()
+    {
+        const string yaml = """
+            byte_source_types:
+              - Foo
+            unknown_future_key: bar
+            """;
+
+        var cfg = EnumeratorConfig.Load(yaml);
+
+        cfg.ByteSourceTypes.ShouldBe(new[] { "Foo" });
+    }
+
+    [Fact]
+    public void Load_MalformedYaml_Throws()
+    {
+        const string yaml = "byte_source_types: [unterminated";
+
+        Should.Throw<EnumeratorConfigException>(() => EnumeratorConfig.Load(yaml));
+    }
 }
