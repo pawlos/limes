@@ -4,11 +4,13 @@ namespace TaintAnalyzer;
 
 public static class Program
 {
-    public static int Main(string[] args)
+    public static int Main(string[] args) => Run(args, Console.Out, Console.Error);
+
+    public static int Run(string[] args, TextWriter stdout, TextWriter stderr)
     {
         if (args.Length < 1)
         {
-            PrintUsage();
+            PrintUsage(stderr);
             return 2;
         }
 
@@ -22,12 +24,12 @@ public static class Program
             var a = args[i];
             if (a == "--rules")
             {
-                if (++i >= args.Length) { Console.Error.WriteLine("error: --rules requires a path"); return 2; }
+                if (++i >= args.Length) { stderr.WriteLine("error: --rules requires a path"); return 2; }
                 rulesPath = args[i];
             }
             else if (a == "--output")
             {
-                if (++i >= args.Length) { Console.Error.WriteLine("error: --output requires a path"); return 2; }
+                if (++i >= args.Length) { stderr.WriteLine("error: --output requires a path"); return 2; }
                 outputPath = args[i];
             }
             else if (a == "--no-symbols")
@@ -36,8 +38,8 @@ public static class Program
             }
             else if (a.StartsWith("--", StringComparison.Ordinal))
             {
-                Console.Error.WriteLine($"error: unknown flag {a}");
-                PrintUsage();
+                stderr.WriteLine($"error: unknown flag {a}");
+                PrintUsage(stderr);
                 return 2;
             }
             else if (target is null)
@@ -46,26 +48,26 @@ public static class Program
             }
             else
             {
-                Console.Error.WriteLine($"error: unexpected positional argument: {a}");
-                PrintUsage();
+                stderr.WriteLine($"error: unexpected positional argument: {a}");
+                PrintUsage(stderr);
                 return 2;
             }
         }
 
         if (target is null || rulesPath is null)
         {
-            PrintUsage();
+            PrintUsage(stderr);
             return 2;
         }
 
         if (!File.Exists(target))
         {
-            Console.Error.WriteLine($"error: target assembly not found: {target}");
+            stderr.WriteLine($"error: target assembly not found: {target}");
             return 1;
         }
         if (!File.Exists(rulesPath))
         {
-            Console.Error.WriteLine($"error: rules file not found: {rulesPath}");
+            stderr.WriteLine($"error: rules file not found: {rulesPath}");
             return 1;
         }
 
@@ -76,7 +78,7 @@ public static class Program
         }
         catch (RulesDocumentException ex)
         {
-            Console.Error.WriteLine($"error: rules: {ex.Message}");
+            stderr.WriteLine($"error: rules: {ex.Message}");
             return 1;
         }
 
@@ -87,7 +89,7 @@ public static class Program
         }
         catch (AssemblyContextException ex)
         {
-            Console.Error.WriteLine($"error: assembly: {ex.Message}");
+            stderr.WriteLine($"error: assembly: {ex.Message}");
             return 1;
         }
 
@@ -102,8 +104,8 @@ public static class Program
                 if (source is null)
                 {
                     var suggestion = SuggestNearest(context, entry.Signature);
-                    Console.Error.WriteLine($"error: source method not found: {entry.Signature}");
-                    if (suggestion is not null) Console.Error.WriteLine($"   closest in target: {suggestion}");
+                    stderr.WriteLine($"error: source method not found: {entry.Signature}");
+                    if (suggestion is not null) stderr.WriteLine($"   closest in target: {suggestion}");
                     return 1;
                 }
 
@@ -154,7 +156,7 @@ public static class Program
 
             if (outputPath is null)
             {
-                Console.Write(yaml);
+                stdout.Write(yaml);
             }
             else
             {
@@ -195,8 +197,8 @@ public static class Program
         return dp[a.Length, b.Length];
     }
 
-    private static void PrintUsage()
+    private static void PrintUsage(TextWriter stderr)
     {
-        Console.Error.WriteLine("usage: TaintAnalyzer <target.dll> --rules <rules.yaml> [--output <trace.yaml>] [--no-symbols]");
+        stderr.WriteLine("usage: TaintAnalyzer <target.dll> --rules <rules.yaml> [--output <trace.yaml>] [--no-symbols]");
     }
 }
