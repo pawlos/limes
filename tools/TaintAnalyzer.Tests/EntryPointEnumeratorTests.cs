@@ -97,4 +97,42 @@ public class EntryPointEnumeratorTests
 
         entries.ShouldNotContain(e => e.Signature.Contains("SpanIntReaderShape::Read"));
     }
+
+    [Fact]
+    public void Enumerate_MatchesFileStreamViaBaseTypeWalk()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldContain(e => e.Signature.Contains("FileStreamReaderShape::Read"));
+    }
+
+    [Fact]
+    public void Enumerate_MatchesByteArrayParameter()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldContain(e =>
+            e.Signature.Contains("ByteArrayReaderShape::Read(System.Byte[])"));
+    }
+
+    [Fact]
+    public void Enumerate_MatchesBinaryReaderParameter()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldContain(e =>
+            e.Signature.Contains("BinaryReaderShape::Read(System.IO.BinaryReader)"));
+    }
 }

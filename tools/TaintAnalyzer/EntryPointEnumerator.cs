@@ -32,13 +32,35 @@ public static class EntryPointEnumerator
     {
         foreach (var p in m.Parameters)
         {
-            var typeFullName = StripModifiers(p.ParameterType.FullName);
-            if (byteSourceTypes.Contains(typeFullName)) return true;
+            var typeRef = p.ParameterType;
+
+            // Strip byref/in/out decoration for matching.
+            if (typeRef is ByReferenceType byref) typeRef = byref.ElementType;
+
+            if (byteSourceTypes.Contains(typeRef.FullName)) return true;
+
+            // Walk the base chain. Cecil's Resolve can fail for cross-assembly refs;
+            // we treat resolution failure as a match miss and stop walking.
+            TypeDefinition? def;
+            try { def = typeRef.Resolve(); }
+            catch { def = null; }
+
+            var current = def?.BaseType;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            while (current is not null && seen.Add(current.FullName))
+            {
+                if (byteSourceTypes.Contains(current.FullName)) return true;
+                TypeDefinition? baseDef;
+                try { baseDef = current.Resolve(); }
+                catch { baseDef = null; }
+                current = baseDef?.BaseType;
+            }
         }
         return false;
     }
 
-    // Strip `&` (byref) and `modreq(...)` decoration that Cecil adds for ref/in/out params.
+    // Strip `modreq(...)` decoration that Cecil adds for some params (kept for safety
+    // in case modreq appears in the base-type chain during resolution).
     private static string StripModifiers(string fullName)
     {
         var idx = fullName.IndexOf(" modreq", StringComparison.Ordinal);
