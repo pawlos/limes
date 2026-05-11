@@ -220,4 +220,38 @@ public class EntryPointEnumeratorTests
 
         entries.ShouldNotContain(e => e.Signature.Contains("InternalOrphan::Orphan"));
     }
+
+    [Fact]
+    public void Enumerate_AppliesNamespaceExclusion()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+
+        // Custom config: exclude TaintAnalyzer.Tests.Fixtures* entirely (matches root
+        // namespace and all sub-namespaces like TaintAnalyzer.Tests.Fixtures.Enumerator).
+        var cfg = new EnumeratorConfig
+        {
+            ExcludeNamespaces = new[] { "TaintAnalyzer.Tests.Fixtures*" },
+        };
+
+        var entries = EntryPointEnumerator.Enumerate(ctx, cfg, graph).ToList();
+
+        entries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Enumerate_AppliesMethodNameExclusion()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+
+        var cfg = new EnumeratorConfig
+        {
+            ExcludeMethodPatterns = new[] { "Read" },
+        };
+
+        var entries = EntryPointEnumerator.Enumerate(ctx, cfg, graph).ToList();
+
+        entries.ShouldNotContain(e => e.Signature.EndsWith("::Read(System.IO.Stream)"));
+    }
 }

@@ -22,6 +22,7 @@ public static class EntryPointEnumerator
             {
                 if (HardReject(method)) continue;
                 if (VisibilityReject(method, callGraph)) continue;
+                if (ExclusionReject(method, config)) continue;
 
                 if (MatchesParameterShape(method, byteSourceSet))
                 {
@@ -141,6 +142,28 @@ public static class EntryPointEnumerator
 
         // Private, protected, protected-internal, private-protected: reject.
         return true;
+    }
+
+    private static bool ExclusionReject(MethodDefinition m, EnumeratorConfig config)
+    {
+        var declaringNs = m.DeclaringType.Namespace ?? "";
+        foreach (var p in config.ExcludeNamespaces)
+        {
+            if (GlobMatcher.Matches(p, declaringNs)) return true;
+        }
+
+        var declaringName = m.DeclaringType.Name;
+        foreach (var p in config.ExcludeTypePatterns)
+        {
+            if (GlobMatcher.Matches(p, declaringName)) return true;
+        }
+
+        foreach (var p in config.ExcludeMethodPatterns)
+        {
+            if (GlobMatcher.Matches(p, m.Name)) return true;
+        }
+
+        return false;
     }
 
     private static bool HardReject(MethodDefinition m)
