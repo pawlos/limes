@@ -114,16 +114,18 @@ public class RulesDocumentLoaderTests
     }
 
     [Fact]
-    public void Load_EmptySourceMethodsList_Throws()
+    public void Load_EmptySourceMethodsList_AcceptsAndReturnsEmpty()
     {
         const string yaml = """
-            vuln_id: imagesharp-3074
+            vuln_id: scan-empty
             source_methods: []
             """;
 
-        var ex = Should.Throw<RulesDocumentException>(() => RulesDocument.Load(yaml));
-        ex.Message.ShouldContain("source_methods");
-        ex.Message.ShouldContain("empty");
+        var doc = RulesDocument.Load(yaml);
+
+        doc.VulnId.ShouldBe("scan-empty");
+        doc.SourceMethods.ShouldNotBeNull();
+        doc.SourceMethods!.ShouldBeEmpty();
     }
 
     [Fact]

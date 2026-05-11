@@ -65,10 +65,9 @@ public sealed class RulesDocument
             throw new RulesDocumentException("rules document is empty");
         }
 
-        if (doc.SourceMethods is null || doc.SourceMethods.Count == 0)
+        if (doc.SourceMethods is null)
         {
-            var state = doc.SourceMethods is null ? "required" : "empty";
-            throw new RulesDocumentException($"source_methods is {state}: at least one entry expected");
+            throw new RulesDocumentException("source_methods is required: at least one entry expected");
         }
 
         foreach (var entry in doc.SourceMethods)
