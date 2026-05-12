@@ -72,6 +72,49 @@ public class VirtualOverrideIndexTests
         result[0].DeclaringType.FullName.ShouldBe("System.Object");
     }
 
+    [Fact]
+    public void EnumerateOverrides_ImplicitOverride_Found()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        var baseFoo = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.SimpleBase::Process(System.Byte[])")!;
+        var derivedFoo = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.SimpleDerived::Process(System.Byte[])")!;
+
+        var result = idx.EnumerateOverrides(baseFoo).Select(m => m.FullName).ToList();
+
+        result.ShouldContain(baseFoo.FullName);
+        result.ShouldContain(derivedFoo.FullName);
+        result.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public void EnumerateOverrides_TransitiveChain_AllAncestorsResolveToConcrete()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        var topAbstract = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.TransitiveA::Foo(System.Int32)")!;
+        var midOverride = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.TransitiveB::Foo(System.Int32)")!;
+        var leafOverride = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.TransitiveC::Foo(System.Int32)")!;
+
+        // callvirt TransitiveA::Foo must enumerate B AND C (flattened chain).
+        var fromA = idx.EnumerateOverrides(topAbstract).Select(m => m.FullName).ToHashSet();
+        fromA.ShouldContain(topAbstract.FullName);
+        fromA.ShouldContain(midOverride.FullName);
+        fromA.ShouldContain(leafOverride.FullName);
+
+        // callvirt TransitiveB::Foo must enumerate C.
+        var fromB = idx.EnumerateOverrides(midOverride).Select(m => m.FullName).ToHashSet();
+        fromB.ShouldContain(midOverride.FullName);
+        fromB.ShouldContain(leafOverride.FullName);
+    }
+
     // Helper: build a MethodReference to a System.Object method via the assembly's
     // module so Resolve() works.
     private static MethodReference ResolveMscorlibObjectMethod(

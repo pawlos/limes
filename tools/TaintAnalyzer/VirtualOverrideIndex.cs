@@ -51,6 +51,85 @@ public sealed class VirtualOverrideIndex
     {
         if (_index is not null) return;
         _index = new Dictionary<MethodDefinition, List<MethodDefinition>>();
-        // BuildIndex body added in Task 3 + Task 4.
+
+        foreach (var type in AllTypes(_assembly))
+        foreach (var method in type.Methods)
+        {
+            // Implicit override: walk the base chain and record this method
+            // against every ancestor virtual/abstract method with matching
+            // name+signature, in-assembly only. Continues past matches so a
+            // deep chain (C overrides B overrides A) registers C against both
+            // B and A.
+            if (method.IsVirtual && method.IsReuseSlot)
+                RecordImplicitOverrides(method);
+        }
+    }
+
+    private void RecordImplicitOverrides(MethodDefinition method)
+    {
+        var baseType = method.DeclaringType.BaseType;
+        var seenTypes = new HashSet<string>(StringComparer.Ordinal);
+        while (baseType is not null && seenTypes.Add(baseType.FullName))
+        {
+            TypeDefinition? def;
+            try { def = baseType.Resolve(); }
+            catch { def = null; }
+            if (def is null) break;
+            if (def.Module.Assembly != _assembly) break;
+
+            foreach (var candidate in def.Methods)
+            {
+                if (!(candidate.IsVirtual || candidate.IsAbstract)) continue;
+                if (!SignatureMatches(candidate, method)) continue;
+                AppendOverride(candidate, method);
+            }
+
+            baseType = def.BaseType;
+        }
+    }
+
+    private void AppendOverride(MethodDefinition virt, MethodDefinition concrete)
+    {
+        if (!_index!.TryGetValue(virt, out var list))
+        {
+            list = new List<MethodDefinition>();
+            _index[virt] = list;
+        }
+        list.Add(concrete);
+    }
+
+    // Match by name + parameter FullName list, stripping Cecil's
+    // ` modreq(System.Runtime.InteropServices.InAttribute)` suffix that
+    // decorates `in T` parameters. Mirrors AssemblyContext.BuildShortSignature
+    // for consistency with the milestone-N rule.
+    private static bool SignatureMatches(MethodDefinition a, MethodDefinition b)
+    {
+        if (a.Name != b.Name) return false;
+        if (a.Parameters.Count != b.Parameters.Count) return false;
+        for (int i = 0; i < a.Parameters.Count; i++)
+        {
+            var aKey = StripModreq(a.Parameters[i].ParameterType.FullName);
+            var bKey = StripModreq(b.Parameters[i].ParameterType.FullName);
+            if (aKey != bKey) return false;
+        }
+        return true;
+    }
+
+    private static string StripModreq(string typeName)
+    {
+        int idx = typeName.IndexOf(" modreq(", StringComparison.Ordinal);
+        return idx >= 0 ? typeName[..idx] : typeName;
+    }
+
+    private static IEnumerable<TypeDefinition> AllTypes(AssemblyDefinition asm)
+    {
+        foreach (var t in asm.MainModule.Types.SelectMany(Flatten))
+            yield return t;
+    }
+
+    private static IEnumerable<TypeDefinition> Flatten(TypeDefinition t)
+    {
+        yield return t;
+        foreach (var nt in t.NestedTypes.SelectMany(Flatten)) yield return nt;
     }
 }
