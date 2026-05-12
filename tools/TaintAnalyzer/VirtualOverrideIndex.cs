@@ -55,13 +55,49 @@ public sealed class VirtualOverrideIndex
         foreach (var type in AllTypes(_assembly))
         foreach (var method in type.Methods)
         {
-            // Implicit override: walk the base chain and record this method
-            // against every ancestor virtual/abstract method with matching
-            // name+signature, in-assembly only. Continues past matches so a
-            // deep chain (C overrides B overrides A) registers C against both
-            // B and A.
+            // (a) Explicit MethodImpl entries — Cecil's MethodDefinition.Overrides
+            //     records every method this one explicitly overrides. Used for
+            //     `void IFoo.Bar()` shapes where the qualified interface name is
+            //     baked into the method name.
+            if (method.HasOverrides)
+            {
+                foreach (var over in method.Overrides)
+                {
+                    MethodDefinition? virt;
+                    try { virt = over.Resolve(); }
+                    catch { virt = null; }
+                    if (virt is null) continue;
+                    if (virt.Module.Assembly != _assembly) continue;
+                    AppendOverride(virt, method);
+                }
+            }
+
+            // (b) Implicit override via base-chain walk.
             if (method.IsVirtual && method.IsReuseSlot)
                 RecordImplicitOverrides(method);
+        }
+
+        // (c) Implicit overrides of interface members. C# `public void Dispose()`
+        //     on a class implementing IDisposable does NOT set HasOverrides — the
+        //     override is implicit. Walk each type's interface table and match by
+        //     signature.
+        foreach (var type in AllTypes(_assembly))
+        {
+            if (!type.HasInterfaces) continue;
+            foreach (var iface in type.Interfaces)
+            {
+                TypeDefinition? ifaceDef;
+                try { ifaceDef = iface.InterfaceType.Resolve(); }
+                catch { ifaceDef = null; }
+                if (ifaceDef is null) continue;
+
+                foreach (var ifaceMethod in ifaceDef.Methods)
+                {
+                    var impl = type.Methods.FirstOrDefault(m =>
+                        m.IsVirtual && SignatureMatches(ifaceMethod, m) && !m.HasOverrides);
+                    if (impl is not null) AppendOverride(ifaceMethod, impl);
+                }
+            }
         }
     }
 

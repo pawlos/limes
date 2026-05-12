@@ -115,6 +115,54 @@ public class VirtualOverrideIndexTests
         fromB.ShouldContain(leafOverride.FullName);
     }
 
+    [Fact]
+    public void EnumerateOverrides_ExplicitInterfaceImpl_Found()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        var ifaceBar = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.IExplicitOperation::Bar()")!;
+
+        var result = idx.EnumerateOverrides(ifaceBar).Select(m => m.FullName).ToList();
+
+        result.ShouldContain(ifaceBar.FullName);
+        result.ShouldContain(
+            "System.Void TaintAnalyzer.Tests.Fixtures.VirtualDispatch.ExplicitImpl::"
+            + "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.IExplicitOperation.Bar()");
+    }
+
+    [Fact]
+    public void EnumerateOverrides_IDisposableDispose_ImplIncluded()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        var disposable = ctx.Assembly.MainModule.ImportReference(typeof(System.IDisposable)).Resolve()!;
+        var disposeRef = ctx.Assembly.MainModule.ImportReference(
+            disposable.Methods.Single(m => m.Name == "Dispose"));
+
+        var result = idx.EnumerateOverrides(disposeRef).Select(m => m.FullName).ToList();
+
+        result.ShouldContain(s => s.Contains("CustomDisposable::Dispose"));
+    }
+
+    [Fact]
+    public void EnumerateOverrides_IEnumeratorMoveNext_ImplIncluded()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        var enumerator = ctx.Assembly.MainModule.ImportReference(
+            typeof(System.Collections.IEnumerator)).Resolve()!;
+        var moveNextRef = ctx.Assembly.MainModule.ImportReference(
+            enumerator.Methods.Single(m => m.Name == "MoveNext"));
+
+        var result = idx.EnumerateOverrides(moveNextRef).Select(m => m.FullName).ToList();
+
+        result.ShouldContain(s => s.Contains("CustomEnumerator::MoveNext"));
+    }
+
     // Helper: build a MethodReference to a System.Object method via the assembly's
     // module so Resolve() works.
     private static MethodReference ResolveMscorlibObjectMethod(
