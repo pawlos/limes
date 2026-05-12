@@ -163,6 +163,71 @@ public class VirtualOverrideIndexTests
         result.ShouldContain(s => s.Contains("CustomEnumerator::MoveNext"));
     }
 
+    [Fact]
+    public void EnumerateOverrides_ModreqInAttribute_SignatureMatches()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        var baseAccept = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.InParamBase::Accept(System.Int32&)")!;
+        var derivedAccept = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.InParamDerived::Accept(System.Int32&)")!;
+
+        var result = idx.EnumerateOverrides(baseAccept).Select(m => m.FullName).ToList();
+
+        result.ShouldContain(baseAccept.FullName);
+        result.ShouldContain(derivedAccept.FullName);
+    }
+
+    [Fact]
+    public void EnumerateOverrides_ResolveFailure_ReturnsEmpty()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        var fakeType = new TypeReference("Nonexistent", "Type",
+            ctx.Assembly.MainModule, ctx.Assembly.MainModule.TypeSystem.CoreLibrary);
+        var fake = new MethodReference("Vanished", ctx.Assembly.MainModule.TypeSystem.Void, fakeType);
+
+        var result = idx.EnumerateOverrides(fake);
+
+        result.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void EnumerateOverrides_FinalizeDenylisted_ReturnsBaseOnly()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        var corlibObject = ctx.Assembly.MainModule.TypeSystem.Object.Resolve()!;
+        var finalize = corlibObject.Methods.Single(m => m.Name == "Finalize");
+        var ref_ = ctx.Assembly.MainModule.ImportReference(finalize);
+
+        var result = idx.EnumerateOverrides(ref_).ToList();
+
+        result.Count.ShouldBe(1);
+        result[0].DeclaringType.FullName.ShouldBe("System.Object");
+        result[0].Name.ShouldBe("Finalize");
+    }
+
+    [Fact]
+    public void EnumerateOverrides_CrossAssemblyBase_ReturnsBaseOnly()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        var corlibObject = ctx.Assembly.MainModule.TypeSystem.Object.Resolve()!;
+        var toString = corlibObject.Methods.Single(m => m.Name == "ToString" && m.Parameters.Count == 0);
+        var ref_ = ctx.Assembly.MainModule.ImportReference(toString);
+
+        var result = idx.EnumerateOverrides(ref_).ToList();
+
+        result.Count.ShouldBe(1);
+        result.ShouldNotContain(m => m.DeclaringType.FullName.Contains("CustomToString"));
+    }
+
     // Helper: build a MethodReference to a System.Object method via the assembly's
     // module so Resolve() works.
     private static MethodReference ResolveMscorlibObjectMethod(
