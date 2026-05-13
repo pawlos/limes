@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Regression-locks the enumerator output for protobuf-net.Core 3.2.56.
+# Compares fresh --scan output against rules.yaml.expected.
+# Skips silently when artifacts/protobuf-net.Core-3.2.56 isn't present
+# (user's local artefact).
+set -euo pipefail
+
+cd "$(dirname "$0")"
+REPO_ROOT="$(cd ../.. && pwd)"
+PB_DLL="$REPO_ROOT/artifacts/protobuf-net.Core-3.2.56/protobuf-net.Core.dll"
+ANALYZER_BIN="$REPO_ROOT/tools/TaintAnalyzer/bin/Release/net10.0/TaintAnalyzer"
+ANALYZER_DLL="$REPO_ROOT/tools/TaintAnalyzer/bin/Release/net10.0/TaintAnalyzer.dll"
+
+if [ ! -f "$PB_DLL" ]; then
+    echo "skip: protobuf-net DLL not at $PB_DLL (artifacts dir not materialised)"
+    exit 0
+fi
+
+if [ ! -f "$ANALYZER_DLL" ]; then
+    echo "error: build the analyzer first: cd tools/TaintAnalyzer && dotnet build -c Release" >&2
+    exit 1
+fi
+
+ACTUAL=$(mktemp)
+trap 'rm -f "$ACTUAL"' EXIT
+
+if [ -x "$ANALYZER_BIN" ]; then
+    "$ANALYZER_BIN" "$PB_DLL" --scan --emit-rules "$ACTUAL"
+else
+    dotnet "$ANALYZER_DLL" "$PB_DLL" --scan --emit-rules "$ACTUAL"
+fi
+
+if ! diff -u rules.yaml.expected "$ACTUAL"; then
+    echo "error: scan-protobuf-net rules.yaml output drifted" >&2
+    exit 1
+fi
+echo "scan-protobuf-net: locked rules.yaml matches"
