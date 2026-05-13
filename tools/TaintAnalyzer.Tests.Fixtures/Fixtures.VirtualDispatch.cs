@@ -18,12 +18,12 @@ public abstract class TransitiveA
     public abstract int Foo(int x);
 }
 
-public abstract class TransitiveB : TransitiveA
+internal abstract class TransitiveB : TransitiveA
 {
     public override int Foo(int x) => x + 1;
 }
 
-public class TransitiveC : TransitiveB
+internal class TransitiveC : TransitiveB
 {
     public override int Foo(int x) => x + 2;
 }
@@ -35,7 +35,7 @@ public abstract class SimpleBase
     public abstract void Process(byte[] data);
 }
 
-public class SimpleDerived : SimpleBase
+internal class SimpleDerived : SimpleBase
 {
     public override void Process(byte[] data) { }
 }
@@ -48,19 +48,19 @@ public abstract class TwoOverrideBase
     public abstract byte[] Read(byte[] input);
 }
 
-public class CleanOverride : TwoOverrideBase
+internal class CleanOverride : TwoOverrideBase
 {
     public override byte[] Read(byte[] input) => System.Array.Empty<byte>();
 }
 
-public class TaintingOverride : TwoOverrideBase
+internal class TaintingOverride : TwoOverrideBase
 {
     // Allocation sink driven by input.Length — flows tainted byte-array length
     // into newarr; TaintWalker should record ReachedSink + ReturnsTainted.
     public override byte[] Read(byte[] input) => new byte[input.Length];
 }
 
-public class ThrowingOverride : TwoOverrideBase
+internal class ThrowingOverride : TwoOverrideBase
 {
     public override byte[] Read(byte[] input)
     {
@@ -76,17 +76,17 @@ public interface IExplicitOperation
     void Bar();
 }
 
-public class ExplicitImpl : IExplicitOperation
+internal class ExplicitImpl : IExplicitOperation
 {
     void IExplicitOperation.Bar() { }
 }
 
-public class CustomDisposable : System.IDisposable
+internal class CustomDisposable : System.IDisposable
 {
     public void Dispose() { }
 }
 
-public class CustomEnumerator : System.Collections.IEnumerator
+internal class CustomEnumerator : System.Collections.IEnumerator
 {
     public object Current => null!;
     public bool MoveNext() => false;
@@ -95,7 +95,7 @@ public class CustomEnumerator : System.Collections.IEnumerator
 
 // ---- Object.ToString override (denylist target) ----
 
-public class CustomToString
+internal class CustomToString
 {
     public override string ToString() => "custom";
 }
@@ -107,7 +107,7 @@ public abstract class InParamBase
     public abstract void Accept(in int value);
 }
 
-public class InParamDerived : InParamBase
+internal class InParamDerived : InParamBase
 {
     public override void Accept(in int value) { }
 }
@@ -143,7 +143,7 @@ public class PublicCallerForTwoOverride
 
 // Caller that uses `call` (not callvirt) on a virtual — verifies opcode-gated trigger.
 // C# emits `call` for `base.X()` invocations.
-public class BaseCallSite : TransitiveB
+internal class BaseCallSite : TransitiveB
 {
     public int CallBaseDirectly(int x) => base.Foo(x); // call TransitiveB::Foo (not callvirt)
 }

@@ -82,6 +82,62 @@ public class ReverseCallGraphTests
         graph.IsReachableFromPublic(prot!).ShouldBeFalse();
     }
 
+    [Fact]
+    public void Callvirt_Override_ReachableFromPublicCaller()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+
+        var derivedOverride = FindMethod(ctx.Assembly,
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.SimpleDerived", "Process");
+
+        derivedOverride.ShouldNotBeNull();
+        graph.IsReachableFromPublic(derivedOverride!).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Callvirt_OverrideOfDenylistedObjectToString_NotEnqueued()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+
+        var customToString = FindMethod(ctx.Assembly,
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.CustomToString", "ToString");
+
+        customToString.ShouldNotBeNull();
+        graph.IsReachableFromPublic(customToString!).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Callvirt_ExplicitInterfaceImpl_Reachable()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+
+        var customDispose = FindMethod(ctx.Assembly,
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.CustomDisposable", "Dispose");
+
+        customDispose.ShouldNotBeNull();
+        graph.IsReachableFromPublic(customDispose!).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Callvirt_TransitiveChain_AllOverridesReachable()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+
+        var bFoo = FindMethod(ctx.Assembly,
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.TransitiveB", "Foo");
+        var cFoo = FindMethod(ctx.Assembly,
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.TransitiveC", "Foo");
+
+        bFoo.ShouldNotBeNull();
+        cFoo.ShouldNotBeNull();
+        graph.IsReachableFromPublic(bFoo!).ShouldBeTrue();
+        graph.IsReachableFromPublic(cFoo!).ShouldBeTrue();
+    }
+
     private static MethodDefinition? FindMethod(AssemblyDefinition asm, string typeFullName, string methodName)
     {
         foreach (var t in asm.MainModule.Types.SelectMany(Flatten))

@@ -20,6 +20,7 @@ public sealed class ReverseCallGraph
     {
         _reachableFromPublic = new HashSet<MethodDefinition>();
         var queue = new Queue<MethodDefinition>();
+        var overrides = new VirtualOverrideIndex(assembly);
 
         foreach (var m in AllMethods(assembly).Where(IsPublic))
         {
@@ -38,6 +39,17 @@ public sealed class ReverseCallGraph
                 if (ins.OpCode != OpCodes.Call && ins.OpCode != OpCodes.Callvirt && ins.OpCode != OpCodes.Newobj)
                     continue;
                 if (ins.Operand is not MethodReference mr) continue;
+
+                if (ins.OpCode == OpCodes.Callvirt)
+                {
+                    foreach (var target in overrides.EnumerateOverrides(mr))
+                    {
+                        if (target.Module.Assembly != assembly) continue;
+                        if (_reachableFromPublic.Add(target))
+                            queue.Enqueue(target);
+                    }
+                    continue;
+                }
 
                 MethodDefinition? callee;
                 try { callee = mr.Resolve(); }
