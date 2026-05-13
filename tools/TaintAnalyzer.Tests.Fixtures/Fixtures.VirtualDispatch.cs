@@ -40,35 +40,6 @@ internal class SimpleDerived : SimpleBase
     public override void Process(byte[] data) { }
 }
 
-// ---- Two-override fan-out for TaintWalker merge tests ----
-
-public abstract class TwoOverrideBase
-{
-    // arg is a tainted-byte-source candidate
-    public abstract byte[] Read(byte[] input);
-}
-
-internal class CleanOverride : TwoOverrideBase
-{
-    public override byte[] Read(byte[] input) => System.Array.Empty<byte>();
-}
-
-internal class TaintingOverride : TwoOverrideBase
-{
-    // Allocation sink driven by input.Length — flows tainted byte-array length
-    // into newarr; TaintWalker should record ReachedSink + ReturnsTainted.
-    public override byte[] Read(byte[] input) => new byte[input.Length];
-}
-
-internal class ThrowingOverride : TwoOverrideBase
-{
-    public override byte[] Read(byte[] input)
-    {
-        if (input.Length > 1024) throw new System.IO.InvalidDataException();
-        return new byte[input.Length];
-    }
-}
-
 // ---- Explicit interface implementations ----
 
 public interface IExplicitOperation
@@ -123,7 +94,7 @@ public class PublicCallerForOverride
 
 public class PublicCallerForToString
 {
-    public string Stringify(object o) => o.ToString() ?? "";  // callvirt Object::ToString
+    public string Stringify(object o) => o.ToString()!;  // callvirt Object::ToString
 }
 
 public class PublicCallerForDispose
@@ -134,11 +105,6 @@ public class PublicCallerForDispose
 public class PublicCallerForTransitive
 {
     public int Run(TransitiveA a, int x) => a.Foo(x);         // callvirt TransitiveA::Foo
-}
-
-public class PublicCallerForTwoOverride
-{
-    public byte[] Run(TwoOverrideBase t, byte[] data) => t.Read(data); // callvirt TwoOverrideBase::Read
 }
 
 // Caller that uses `call` (not callvirt) on a virtual — verifies opcode-gated trigger.

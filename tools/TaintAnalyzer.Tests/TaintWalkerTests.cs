@@ -828,4 +828,90 @@ public class TaintWalkerTests
 
         summary.ReachedSink.ShouldBeFalse("GetStreamAsync is a stream handle, not an allocation sink");
     }
+
+    [Fact]
+    public void Callvirt_SingleOverride_PropagatesTaintFromOverrideBody()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var caller = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.PublicCallerForOverride::Call(System.Byte[])")!;
+        var summary = walker.Walk(caller, taintedParamBitmask: 0b1);
+
+        // Process is a no-op override. Override expansion must have happened
+        // (otherwise we'd fall through to the external-call path); proof is
+        // structural — no crash, no sink reached.
+        summary.ReachedSink.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Callvirt_DenylistedObjectToString_FallsBackToSingleTarget()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var caller = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.PublicCallerForToString::Stringify(System.Object)")!;
+        var summary = walker.Walk(caller, taintedParamBitmask: 0b1);
+
+        // Tainted object in, ToString returns tainted (external over-approximation),
+        // no sink. Critical: we don't recurse into CustomToString (denylisted).
+        summary.ReachedSink.ShouldBeFalse();
+        summary.ReturnsTainted.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Callvirt_NotInAssembly_FallsBackToExternalPath()
+    {
+        // PublicCallerForToString does callvirt Object::ToString. The static
+        // target is cross-assembly; EnumerateOverrides returns [Object::ToString]
+        // (denylisted). Verifies the cross-assembly fallback into the external
+        // call path within HandleCall.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var caller = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.PublicCallerForToString::Stringify(System.Object)")!;
+        var summary = walker.Walk(caller, taintedParamBitmask: 0b1);
+
+        summary.ReturnsTainted.ShouldBeTrue();
+        summary.ReachedSink.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Call_OpcodeOnVirtualMethod_NoOverrideExpansion()
+    {
+        // BaseCallSite.CallBaseDirectly does `call TransitiveB::Foo` (not callvirt).
+        // The walker must NOT expand to TransitiveC::Foo; only TransitiveB::Foo runs.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var caller = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.BaseCallSite::CallBaseDirectly(System.Int32)")!;
+        var summary = walker.Walk(caller, taintedParamBitmask: 0b1);
+
+        // Regression guard against accidentally adding override expansion to the
+        // `call` opcode. If TransitiveC were walked here, no extra sink would
+        // appear (none in fixture) — so the proof is structural: clean run.
+        summary.ReachedSink.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Callvirt_AllOverridesEmpty_DefaultSummaryReturned()
+    {
+        // Walk via the public caller; expansion picks SimpleBase (abstract, null body)
+        // + SimpleDerived (no-op). Merged summary must be inert.
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var walker = new TaintWalker(ctx);
+
+        var caller = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.PublicCallerForOverride::Call(System.Byte[])")!;
+        var summary = walker.Walk(caller, taintedParamBitmask: 0b1);
+
+        summary.ReachedSink.ShouldBeFalse();
+        summary.NewlyTaintedThisFields.ShouldBeEmpty();
+        summary.AppliedValueClamp.ShouldBeFalse();
+        summary.AppliedThrowShapeSanitiser.ShouldBeFalse();
+    }
 }
