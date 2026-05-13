@@ -13,6 +13,10 @@ public sealed class AssemblyContext : IDisposable
 {
     public AssemblyDefinition Assembly { get; }
 
+    private VirtualOverrideIndex? _virtualOverrides;
+    public VirtualOverrideIndex VirtualOverrides
+        => _virtualOverrides ??= new VirtualOverrideIndex(Assembly);
+
     private readonly Dictionary<string, MethodDefinition> _methodsByFullName;
     private readonly Dictionary<string, MethodDefinition> _methodsByShortSignature;
 
