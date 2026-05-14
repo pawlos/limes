@@ -22,16 +22,31 @@ if [ ! -f "$ANALYZER_DLL" ]; then
 fi
 
 ACTUAL=$(mktemp)
-trap 'rm -f "$ACTUAL"' EXIT
+ACTUAL_OVERRIDES=$(mktemp)
+trap 'rm -f "$ACTUAL" "$ACTUAL_OVERRIDES"' EXIT
 
-if [ -x "$ANALYZER_BIN" ]; then
-    "$ANALYZER_BIN" "$PB_DLL" --scan --emit-rules "$ACTUAL"
-else
-    dotnet "$ANALYZER_DLL" "$PB_DLL" --scan --emit-rules "$ACTUAL"
-fi
+run_scan() {
+    local out="$1"
+    shift
+    if [ -x "$ANALYZER_BIN" ]; then
+        "$ANALYZER_BIN" "$PB_DLL" --scan --emit-rules "$out" "$@"
+    else
+        dotnet "$ANALYZER_DLL" "$PB_DLL" --scan --emit-rules "$out" "$@"
+    fi
+}
 
+# Baseline (milestone-R + S1 lock): no --include-virtual-overrides.
+run_scan "$ACTUAL"
 if ! diff -u rules.yaml.expected "$ACTUAL"; then
-    echo "error: scan-protobuf-net rules.yaml output drifted" >&2
+    echo "error: scan-protobuf-net rules.yaml (baseline) drifted" >&2
     exit 1
 fi
-echo "scan-protobuf-net: locked rules.yaml matches"
+
+# S2 lock: with --include-virtual-overrides; must surface ImplReadString.
+run_scan "$ACTUAL_OVERRIDES" --include-virtual-overrides
+if ! diff -u rules.yaml.expected.with-overrides "$ACTUAL_OVERRIDES"; then
+    echo "error: scan-protobuf-net rules.yaml.with-overrides drifted" >&2
+    exit 1
+fi
+
+echo "scan-protobuf-net: both locks match (baseline + with-overrides)"

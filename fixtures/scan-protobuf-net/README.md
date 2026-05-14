@@ -40,17 +40,24 @@ dispatchers, each taking a byte-source parameter (`ReadOnlySpan<byte>` or
 - `ProtoBuf.ProtoWriter/StreamProtoWriter::ImplWriteBytes(State&, ReadOnlySpan<byte>)`
 - `ProtoBuf.ProtoWriter/StreamProtoWriter::ImplCopyRawFromStream(State&, Stream)`
 
-## What this fixture still does NOT prove
+## What milestone-S2 adds (--include-virtual-overrides)
 
-`ProtoReader::ImplReadString(ref State, int bytes)` — the abstract reader-side
-dispatcher behind the `ReadString()` OOM advisory — has parameters
-`(State&, Int32)`. Neither matches `MatchesParameterShape`'s byte-source set,
-so the method is rejected before `VisibilityReject` is even consulted.
-Surfacing it from cold requires a parameter-shape-orthogonal mechanism — for
-example, an opt-in flag that accepts methods overriding a public-reachable
-abstract virtual regardless of parameter shape, or a body-scan heuristic
-that recognises byte-source-typed values inside the method body. Tracked as
-a future milestone.
+`EnumeratorConfig.IncludeVirtualOverrides` (CLI: `--include-virtual-overrides`)
+accepts methods that override an abstract virtual whose root is reachable from
+public, regardless of parameter shape. The second lock file,
+`rules.yaml.expected.with-overrides`, captures the output when the flag is on.
+
+S2 surfaces ~94 additional candidates on protobuf-net.Core 3.2.56 — the full
+set of in-assembly `Impl*` overrides on the abstract `ProtoReader` /
+`ProtoWriter` dispatcher hierarchies. Notably:
+
+- `ProtoBuf.ProtoReader/ReadOnlySequenceProtoReader::ImplReadString(State&, Int32)`
+- `ProtoBuf.ProtoReader/StreamProtoReader::ImplReadString(State&, Int32)`
+
+These are exactly the methods at the head of the `ImplReadString → Ensure →
+ResizeAndFlushLeft → new byte[length]` chain documented in the protobuf-net
+string-OOM advisory. Feeding the with-overrides rules.yaml back through
+`--rules` reproduces the advisory chain from cold without prior knowledge.
 
 ## Activate
 
