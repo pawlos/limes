@@ -88,6 +88,54 @@ public class HasPrivateAndProtected
     protected void ProtectedMethod(System.IO.Stream s) { }
 }
 
+// ---- S1 visibility-matrix fixtures: family flavors x reachability ----
+
+// (1) protected (Cecil IsFamily) reachable from public on same type — must accept.
+public class FamilyReachable
+{
+    public void EntryPoint(System.IO.Stream s) => Helper(s);
+    protected void Helper(System.IO.Stream s) { }
+}
+
+// (2) protected, no public caller in assembly — must reject (reachability gate).
+public class FamilyUnreachable
+{
+    protected void Helper(System.IO.Stream s) { }
+}
+
+// (3) private protected (Cecil IsFamilyAndAssembly) reachable from public — accept.
+public class FamilyAndAssemblyReachable
+{
+    public void EntryPoint(System.IO.Stream s) => Helper(s);
+    private protected void Helper(System.IO.Stream s) { }
+}
+
+// (4) private protected, no public caller — reject.
+public class FamilyAndAssemblyUnreachable
+{
+    private protected void Helper(System.IO.Stream s) { }
+}
+
+// (5) protected internal (Cecil IsFamilyOrAssembly) reachable from public — accept.
+public class FamilyOrAssemblyReachable
+{
+    public void EntryPoint(System.IO.Stream s) => Helper(s);
+    protected internal void Helper(System.IO.Stream s) { }
+}
+
+// (6) protected internal, no public caller — reject.
+public class FamilyOrAssemblyUnreachable
+{
+    protected internal void Helper(System.IO.Stream s) { }
+}
+
+// (7) private, reachable from public on same type — must STILL reject (private bucket).
+public class PrivateReachable
+{
+    public void EntryPoint(System.IO.Stream s) => Helper(s);
+    private void Helper(System.IO.Stream s) { }
+}
+
 // ---- Hard-filter fixtures ----
 
 public class HasCtorWithStream

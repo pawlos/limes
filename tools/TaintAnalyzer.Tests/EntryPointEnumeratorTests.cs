@@ -240,6 +240,90 @@ public class EntryPointEnumeratorTests
     }
 
     [Fact]
+    public void Enumerate_AcceptsFamilyReachableFromPublic()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldContain(e => e.Signature.Contains("FamilyReachable::Helper"));
+    }
+
+    [Fact]
+    public void Enumerate_AcceptsFamilyAndAssemblyReachableFromPublic()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldContain(e => e.Signature.Contains("FamilyAndAssemblyReachable::Helper"));
+    }
+
+    [Fact]
+    public void Enumerate_AcceptsFamilyOrAssemblyReachableFromPublic()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldContain(e => e.Signature.Contains("FamilyOrAssemblyReachable::Helper"));
+    }
+
+    [Fact]
+    public void Enumerate_RejectsFamilyUnreachable()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldNotContain(e => e.Signature.Contains("FamilyUnreachable::Helper"));
+    }
+
+    [Fact]
+    public void Enumerate_RejectsFamilyAndAssemblyUnreachable()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldNotContain(e => e.Signature.Contains("FamilyAndAssemblyUnreachable::Helper"));
+    }
+
+    [Fact]
+    public void Enumerate_RejectsFamilyOrAssemblyUnreachable()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldNotContain(e => e.Signature.Contains("FamilyOrAssemblyUnreachable::Helper"));
+    }
+
+    [Fact]
+    public void Enumerate_RejectsPrivateEvenWhenReachable()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldNotContain(e => e.Signature.Contains("PrivateReachable::Helper"));
+    }
+
+    [Fact]
     public void Enumerate_AppliesMethodNameExclusion()
     {
         using var ctx = AssemblyContext.Load(FixturePath);
