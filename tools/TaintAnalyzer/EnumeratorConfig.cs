@@ -12,6 +12,7 @@ public sealed class EnumeratorConfig
     public IReadOnlyList<string> ExcludeTypePatterns { get; init; } = s_defaultExcludeTypePatterns;
     public IReadOnlyList<string> ExcludeMethodPatterns { get; init; } = s_defaultExcludeMethodPatterns;
     public bool IncludeThisField { get; init; }
+    public bool IncludeVirtualOverrides { get; init; }
 
     private static readonly string[] s_defaultByteSourceTypes =
     {

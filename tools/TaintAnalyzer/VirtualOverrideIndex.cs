@@ -22,10 +22,31 @@ public sealed class VirtualOverrideIndex
 
     private readonly AssemblyDefinition _assembly;
     private Dictionary<MethodDefinition, List<MethodDefinition>>? _index;
+    private Dictionary<MethodDefinition, List<MethodDefinition>>? _inverseIndex;
 
     public VirtualOverrideIndex(AssemblyDefinition assembly)
     {
         _assembly = assembly;
+    }
+
+    // Inverse of the forward index: for a concrete override method, return the
+    // in-assembly abstract roots it overrides. Used by EntryPointEnumerator's
+    // --include-virtual-overrides path (S2) to surface methods whose parameter
+    // shape doesn't match ByteSourceTypes but which dispatch from a public
+    // abstract surface.
+    public IReadOnlyList<MethodDefinition> EnumerateAbstractRoots(MethodDefinition concrete)
+    {
+        EnsureInverseIndexBuilt();
+        if (!_inverseIndex!.TryGetValue(concrete, out var roots))
+            return Array.Empty<MethodDefinition>();
+
+        var result = new List<MethodDefinition>(roots.Count);
+        foreach (var r in roots)
+        {
+            if (r.IsAbstract && r.Module.Assembly == _assembly)
+                result.Add(r);
+        }
+        return result;
     }
 
     public IReadOnlyList<MethodDefinition> EnumerateOverrides(MethodReference vRef)
@@ -121,6 +142,26 @@ public sealed class VirtualOverrideIndex
             }
 
             baseType = def.BaseType;
+        }
+    }
+
+    private void EnsureInverseIndexBuilt()
+    {
+        if (_inverseIndex is not null) return;
+        EnsureIndexBuilt();
+        _inverseIndex = new Dictionary<MethodDefinition, List<MethodDefinition>>();
+        foreach (var kv in _index!)
+        {
+            var root = kv.Key;
+            foreach (var concrete in kv.Value)
+            {
+                if (!_inverseIndex.TryGetValue(concrete, out var list))
+                {
+                    list = new List<MethodDefinition>();
+                    _inverseIndex[concrete] = list;
+                }
+                list.Add(root);
+            }
         }
     }
 

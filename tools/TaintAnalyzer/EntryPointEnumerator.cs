@@ -44,10 +44,28 @@ public static class EntryPointEnumerator
                             Signature = BuildShortSignature(method),
                             SeedThisFields = seedFields.ToList(),
                         };
+                        continue;
                     }
+                }
+
+                if (config.IncludeVirtualOverrides &&
+                    IsOverrideOfReachableAbstract(method, context.VirtualOverrides, callGraph))
+                {
+                    yield return new SourceMethodEntry { Signature = BuildShortSignature(method) };
+                    continue;
                 }
             }
         }
+    }
+
+    private static bool IsOverrideOfReachableAbstract(
+        MethodDefinition m, VirtualOverrideIndex overrides, ReverseCallGraph callGraph)
+    {
+        foreach (var root in overrides.EnumerateAbstractRoots(m))
+        {
+            if (callGraph.IsReachableFromPublic(root)) return true;
+        }
+        return false;
     }
 
     // Returns the list of field names matching ByteSourceTypes if the type's name

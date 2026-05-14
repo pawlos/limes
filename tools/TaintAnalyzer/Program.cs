@@ -22,6 +22,7 @@ public static class Program
         bool scan = false;
         bool progress = false;
         bool includeThisField = false;
+        bool includeVirtualOverrides = false;
         string? enumeratorConfigPath = null;
 
         for (int i = 0; i < args.Length; i++)
@@ -52,6 +53,10 @@ public static class Program
             else if (a == "--include-this-field")
             {
                 includeThisField = true;
+            }
+            else if (a == "--include-virtual-overrides")
+            {
+                includeVirtualOverrides = true;
             }
             else if (a == "--enumerator-config")
             {
@@ -99,9 +104,9 @@ public static class Program
             return 2;
         }
 
-        if (!scan && (includeThisField || enumeratorConfigPath is not null))
+        if (!scan && (includeThisField || includeVirtualOverrides || enumeratorConfigPath is not null))
         {
-            stderr.WriteLine("error: --include-this-field and --enumerator-config require --scan");
+            stderr.WriteLine("error: --include-this-field, --include-virtual-overrides and --enumerator-config require --scan");
             return 2;
         }
         if (!scan && emitRulesPath is not null)
@@ -169,7 +174,7 @@ public static class Program
                     cfg = EnumeratorConfig.Default;
                 }
 
-                if (includeThisField)
+                if (includeThisField || includeVirtualOverrides)
                 {
                     cfg = new EnumeratorConfig
                     {
@@ -178,7 +183,8 @@ public static class Program
                         ExcludeNamespaces = cfg.ExcludeNamespaces,
                         ExcludeTypePatterns = cfg.ExcludeTypePatterns,
                         ExcludeMethodPatterns = cfg.ExcludeMethodPatterns,
-                        IncludeThisField = true,
+                        IncludeThisField = includeThisField,
+                        IncludeVirtualOverrides = includeVirtualOverrides,
                     };
                 }
 
