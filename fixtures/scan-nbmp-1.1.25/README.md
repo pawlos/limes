@@ -12,6 +12,17 @@ path** (no `--include-this-field`), matching the `ReadOnlySpan<byte>` parameter
 of `TryRead`. This proves the heuristic catches the parameter-shape class of
 bug without prior knowledge.
 
+Milestone-S1 (family-accessibility relaxation in `VisibilityReject`) added 5
+further candidates that were previously rejected by visibility alone, all
+`private protected` overrides taking `ReadOnlySpan<byte>` and reachable from
+public callers via callvirt:
+
+- `UnusedDataPacket/Map::GetPropertyNameMemory(ReadOnlySpan<byte>)`
+- `UnusedDataPacket/Map::Add(ReadOnlySpan<byte>, RawMessagePack&)`
+- `SecureHash.SipHash::Compute(ReadOnlySpan<byte>)`
+- `Converters.ObjectMapConverter`1::TryMatchPropertyName(ReadOnlySpan<byte>, String)`
+- `Converters.ObjectMapWithNonDefaultCtorConverter`2::TryMatchPropertyName(ReadOnlySpan<byte>, String)`
+
 The fixture skips silently when `artifacts/nbmp-1.1.25/` is not materialised
 (untracked working-tree artefact). To activate:
 
