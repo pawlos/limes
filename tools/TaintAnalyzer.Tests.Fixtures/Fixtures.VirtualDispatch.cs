@@ -11,6 +11,20 @@ public class NonVirtualTarget
     public int Compute(int x) => x * 2;
 }
 
+// ---- Non-abstract virtual base + override (S2 regression guard) ----
+// EnumerateAbstractRoots(NonAbstractVirtualDerived::Compute) must return empty:
+// the root is `virtual` not `abstract`.
+
+public class NonAbstractVirtualBase
+{
+    public virtual void Compute(int x) { }
+}
+
+public class NonAbstractVirtualDerived : NonAbstractVirtualBase
+{
+    public override void Compute(int x) { }
+}
+
 // ---- Implicit override chain (A -> B -> C) ----
 
 public abstract class TransitiveA

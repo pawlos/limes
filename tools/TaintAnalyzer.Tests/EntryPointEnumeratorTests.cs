@@ -324,6 +324,50 @@ public class EntryPointEnumeratorTests
     }
 
     [Fact]
+    public void Enumerate_VirtualOverrideShape_AcceptsOverrideOfReachableAbstract()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, new EnumeratorConfig { IncludeVirtualOverrides = true }, graph)
+            .ToList();
+
+        // TransitiveC::Foo(int) overrides TransitiveA::Foo (public abstract,
+        // reachable via PublicCallerForTransitive). Param shape is (Int32) — no
+        // byte source — so it MUST be surfaced via the virtual-override path,
+        // not the param-shape path.
+        entries.ShouldContain(e => e.Signature.Contains("TransitiveC::Foo(System.Int32)"));
+    }
+
+    [Fact]
+    public void Enumerate_VirtualOverrideShape_RejectsWhenFlagOff()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, EnumeratorConfig.Default, graph)
+            .ToList();
+
+        entries.ShouldNotContain(e => e.Signature.Contains("TransitiveC::Foo(System.Int32)"));
+    }
+
+    [Fact]
+    public void Enumerate_VirtualOverrideShape_StillRejectsNonAbstractVirtualOverride()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var graph = new ReverseCallGraph(ctx.Assembly);
+        var entries = EntryPointEnumerator
+            .Enumerate(ctx, new EnumeratorConfig { IncludeVirtualOverrides = true }, graph)
+            .ToList();
+
+        // NonAbstractVirtualDerived::Compute overrides a non-abstract virtual.
+        // Even with the flag on, it must be rejected — EnumerateAbstractRoots
+        // filters non-abstract roots.
+        entries.ShouldNotContain(e =>
+            e.Signature.Contains("NonAbstractVirtualDerived::Compute"));
+    }
+
+    [Fact]
     public void Enumerate_AppliesMethodNameExclusion()
     {
         using var ctx = AssemblyContext.Load(FixturePath);

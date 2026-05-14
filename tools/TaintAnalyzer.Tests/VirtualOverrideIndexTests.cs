@@ -228,6 +228,86 @@ public class VirtualOverrideIndexTests
         result.ShouldNotContain(m => m.DeclaringType.FullName.Contains("CustomToString"));
     }
 
+    [Fact]
+    public void EnumerateAbstractRoots_OverrideOfAbstractBase_ReturnsRoot()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        var derived = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.SimpleDerived::Process(System.Byte[])")!;
+        var baseAbstract = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.SimpleBase::Process(System.Byte[])")!;
+
+        var result = idx.EnumerateAbstractRoots(derived).Select(m => m.FullName).ToList();
+
+        result.ShouldContain(baseAbstract.FullName);
+    }
+
+    [Fact]
+    public void EnumerateAbstractRoots_OverrideOfNonAbstractVirtual_ReturnsEmpty()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        var derived = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.NonAbstractVirtualDerived::Compute(System.Int32)")!;
+
+        var result = idx.EnumerateAbstractRoots(derived);
+
+        result.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void EnumerateAbstractRoots_OverrideOfCrossAssemblyInterface_ReturnsEmpty()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        // CustomDisposable implements System.IDisposable. IDisposable.Dispose is
+        // abstract but cross-assembly — must be filtered out by the assembly check.
+        var dispose = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.CustomDisposable::Dispose()")!;
+
+        var result = idx.EnumerateAbstractRoots(dispose);
+
+        result.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void EnumerateAbstractRoots_PlainMethod_ReturnsEmpty()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        var plain = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.NonVirtualTarget::Compute(System.Int32)")!;
+
+        var result = idx.EnumerateAbstractRoots(plain);
+
+        result.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void EnumerateAbstractRoots_TransitiveChain_ReturnsOnlyAbstractAncestor()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var idx = new VirtualOverrideIndex(ctx.Assembly);
+
+        // TransitiveC overrides Foo. Inverse index gives [TransitiveA, TransitiveB].
+        // TransitiveA is abstract, TransitiveB is virtual (concrete override).
+        // Filter must keep only TransitiveA.
+        var leaf = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.TransitiveC::Foo(System.Int32)")!;
+        var topAbstract = ctx.FindMethod(
+            "TaintAnalyzer.Tests.Fixtures.VirtualDispatch.TransitiveA::Foo(System.Int32)")!;
+
+        var result = idx.EnumerateAbstractRoots(leaf).Select(m => m.FullName).ToList();
+
+        result.ShouldContain(topAbstract.FullName);
+        result.ShouldNotContain(s => s.Contains("TransitiveB"));
+    }
+
     // Helper: build a MethodReference to a System.Object method via the assembly's
     // module so Resolve() works.
     private static MethodReference ResolveMscorlibObjectMethod(

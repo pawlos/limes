@@ -41,6 +41,12 @@ public class EnumeratorConfigTests
     }
 
     [Fact]
+    public void Default_IncludeVirtualOverridesIsFalse()
+    {
+        EnumeratorConfig.Default.IncludeVirtualOverrides.ShouldBeFalse();
+    }
+
+    [Fact]
     public void Load_EmptyDocument_EqualsDefault()
     {
         var cfg = EnumeratorConfig.Load("");

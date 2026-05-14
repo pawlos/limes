@@ -60,6 +60,21 @@ public class ProgramScanFlagTests
     }
 
     [Fact]
+    public void IncludeVirtualOverrides_RequiresScan()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var rc = Program.Run(
+            new[] { FixturePath, "--rules", "x.yaml", "--include-virtual-overrides" }, stdout, stderr);
+
+        rc.ShouldBe(2);
+        // Asserts the explicit requires-scan guard fires (not the catch-all usage).
+        stderr.ToString().ShouldContain("--include-virtual-overrides");
+        stderr.ToString().ShouldContain("require");
+    }
+
+    [Fact]
     public void EnumeratorConfig_RequiresScan()
     {
         var stdout = new StringWriter();
