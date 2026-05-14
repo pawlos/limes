@@ -128,20 +128,14 @@ public static class EntryPointEnumerator
         // Public method on a public type → always accept.
         if (m.IsPublic && m.DeclaringType.IsPublic) return false;
 
-        // Internal: accept only if reachable from some public method.
-        if (m.IsAssembly)
-        {
-            return !callGraph.IsReachableFromPublic(m);
-        }
+        // Private: only callable from inside its declaring type, which has its own
+        // public entry points. Reject without consulting the graph.
+        if (m.IsPrivate) return true;
 
-        // Public method on an internal type → treat as internal: reachability check.
-        if (m.IsPublic && !m.DeclaringType.IsPublic)
-        {
-            return !callGraph.IsReachableFromPublic(m);
-        }
-
-        // Private, protected, protected-internal, private-protected: reject.
-        return true;
+        // Internal, public-on-internal-type, protected (family), private-protected
+        // (family-and-assembly), protected-internal (family-or-assembly):
+        // accept iff some public method reaches them.
+        return !callGraph.IsReachableFromPublic(m);
     }
 
     private static bool ExclusionReject(MethodDefinition m, EnumeratorConfig config)
