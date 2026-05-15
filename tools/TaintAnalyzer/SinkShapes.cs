@@ -192,4 +192,70 @@ public static class SinkShapes
             SizeProvenance = provenance,
         };
     }
+
+    // SQL injection sink: tainted string assigned to IDbCommand.CommandText.
+    // Matches `callvirt System.Data.IDbCommand::set_CommandText(string)` OR a setter
+    // on a class that implements IDbCommand. Resolve-failure fallback (Task 8) accepts
+    // declaring types under known DB-provider namespaces whose names end in `Command`.
+    public static SinkMatch? MatchCommandTextSetter(Instruction instruction, SymbolicStack stack)
+    {
+        if (instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) return null;
+        if (instruction.Operand is not MethodReference mr) return null;
+        if (mr.Name != "set_CommandText") return null;
+        if (mr.Parameters.Count != 1) return null;
+        if (mr.Parameters[0].ParameterType.FullName != "System.String") return null;
+
+        var declaring = mr.DeclaringType;
+        var resolved = declaring.Resolve();
+        if (resolved is null) return null;   // Task 8 extends this with the fallback heuristic.
+
+        if (!ImplementsIDbCommand(resolved)) return null;
+
+        if (stack.Depth < 2) return null;    // receiver + value
+        var valueSlot = stack.Peek(0);
+        if (!valueSlot.Tainted) return null;
+
+        return new SinkMatch
+        {
+            Kind = SinkKind.SqlInjection,
+            Api = SinkApi.SqlCommandText,
+            SizeProvenance = valueSlot.Provenance,
+        };
+    }
+
+    private static bool ImplementsIDbCommand(TypeDefinition td)
+    {
+        const string Target = "System.Data.IDbCommand";
+
+        // Walk the base chain and check interface implementations on each.
+        var current = td;
+        while (current is not null)
+        {
+            if (current.FullName == Target) return true;
+            foreach (var iface in current.Interfaces)
+            {
+                var ir = iface.InterfaceType;
+                if (ir.FullName == Target) return true;
+                // Interface inheritance — resolve and check transitively.
+                var iresolved = ir.Resolve();
+                if (iresolved is not null && ImplementsIDbCommandViaInterface(iresolved, Target)) return true;
+            }
+            var baseType = current.BaseType;
+            current = baseType?.Resolve();
+        }
+        return false;
+    }
+
+    private static bool ImplementsIDbCommandViaInterface(TypeDefinition iface, string target)
+    {
+        if (iface.FullName == target) return true;
+        foreach (var parent in iface.Interfaces)
+        {
+            var pr = parent.InterfaceType;
+            if (pr.FullName == target) return true;
+            var presolved = pr.Resolve();
+            if (presolved is not null && ImplementsIDbCommandViaInterface(presolved, target)) return true;
+        }
+        return false;
+    }
 }
