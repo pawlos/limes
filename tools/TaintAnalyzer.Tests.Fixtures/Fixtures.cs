@@ -33,6 +33,36 @@ public static class SinkFixtures
     }
 }
 
+public static class SqlSinkFixtures
+{
+    // Single-line setter — lowers to: ldarg.0, ldarg.1, callvirt set_CommandText.
+    // Used by SinkShapesTests.MatchCommandTextSetter_* to extract the callvirt
+    // instruction at a known offset.
+    public static void AssignCommandText(System.Data.Common.DbCommand cmd, string sql)
+    {
+        cmd.CommandText = sql;
+    }
+
+    // Setter via the interface — lowers to callvirt on System.Data.IDbCommand::set_CommandText.
+    public static void AssignViaInterface(System.Data.IDbCommand cmd, string sql)
+    {
+        cmd.CommandText = sql;
+    }
+
+    public static void AssignUnrelatedCommandText(UnrelatedCommandTextHolder obj, string value)
+    {
+        obj.CommandText = value;
+    }
+}
+
+// Negative-case fixture: an unrelated class with a CommandText member.
+// The matcher must NOT fire on this type — kept as a sibling top-level class
+// (not nested) so Cecil's short-sig format is straightforward in the test below.
+public sealed class UnrelatedCommandTextHolder
+{
+    public string CommandText { get; set; } = "";
+}
+
 // Throw-helpers — various shapes the predicate must classify.
 public static class ThrowHelpers
 {
