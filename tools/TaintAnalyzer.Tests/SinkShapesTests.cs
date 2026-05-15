@@ -252,4 +252,27 @@ public class SinkShapesTests
         match.Api.ShouldBe(SinkApi.SqlCommandText);
         match.SizeProvenance.ShouldBe("sql");
     }
+
+    [Fact]
+    public void MatchCommandTextSetter_DirectIDbCommand_Tainted_Matches()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.SqlSinkFixtures::AssignViaInterface(System.Data.IDbCommand,System.String)");
+
+        var setter = m.Body.Instructions.Single(i =>
+            (i.OpCode == Mono.Cecil.Cil.OpCodes.Call || i.OpCode == Mono.Cecil.Cil.OpCodes.Callvirt) &&
+            i.Operand is Mono.Cecil.MethodReference mr &&
+            mr.Name == "set_CommandText");
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);                       // receiver
+        stack.Push(StackSlot.TaintedWith("sql"));              // value
+
+        var match = SinkShapes.MatchCommandTextSetter(setter, stack);
+
+        match.ShouldNotBeNull();
+        match!.Kind.ShouldBe(SinkKind.SqlInjection);
+        match.Api.ShouldBe(SinkApi.SqlCommandText);
+        match.SizeProvenance.ShouldBe("sql");
+    }
 }
