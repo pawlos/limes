@@ -2,9 +2,9 @@ namespace TaintAnalyzer;
 
 public enum HopRole { Source, Propagator, Sanitizer, Sink }
 
-public enum SinkKind { Allocation, SpanAccess }
+public enum SinkKind { Allocation, SpanAccess, SqlInjection }
 
-public enum SinkApi { NewArray, ArrayPoolRent, SpanSlice, SpanIndex, Stackalloc, HttpContentRead, HttpClientRead }
+public enum SinkApi { NewArray, ArrayPoolRent, SpanSlice, SpanIndex, Stackalloc, HttpContentRead, HttpClientRead, SqlCommandText }
 
 public enum FailureKind { Throw, ReturnEarly }
 
