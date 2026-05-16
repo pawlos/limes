@@ -415,4 +415,28 @@ public class SinkShapesTests
         handled.ShouldBeFalse();
         state.Locals.ShouldBeEmpty();
     }
+
+    [Fact]
+    public void TryHandleInterpolatedStringAppend_AppendLiteral_ReturnsFalse()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.InterpolatedStringFixtures::DoFormat(System.String)");
+
+        // Pick any AppendLiteral call from the same method body — the recognizer
+        // must return false because the method name is AppendLiteral, not AppendFormatted.
+        var call = m.Body.Instructions.First(i =>
+            i.OpCode == Mono.Cecil.Cil.OpCodes.Call &&
+            i.Operand is Mono.Cecil.MethodReference mr &&
+            mr.Name == "AppendLiteral" &&
+            mr.DeclaringType.FullName == "System.Runtime.CompilerServices.DefaultInterpolatedStringHandler");
+
+        var callee = (Mono.Cecil.MethodReference)call.Operand;
+        var argSlots = new[] { StackSlot.TaintedWith("literal") };  // even if "tainted", must not fire
+        var state = new TaintState();
+
+        var handled = SinkShapes.TryHandleInterpolatedStringAppend(callee, call, argSlots, state);
+
+        handled.ShouldBeFalse();
+        state.Locals.ShouldBeEmpty();
+    }
 }
