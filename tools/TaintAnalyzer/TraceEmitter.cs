@@ -386,6 +386,7 @@ public static class TraceEmitter
     {
         SinkKind.Allocation => "allocation",
         SinkKind.SpanAccess => "span_access",
+        SinkKind.SqlInjection => "sql_injection",
         _ => null,
     };
 
@@ -398,6 +399,7 @@ public static class TraceEmitter
         SinkApi.Stackalloc => "stackalloc",
         SinkApi.HttpContentRead => "http_content_read",
         SinkApi.HttpClientRead => "http_client_read",
+        SinkApi.SqlCommandText => "sql_command_text",
         _ => null,
     };
 
