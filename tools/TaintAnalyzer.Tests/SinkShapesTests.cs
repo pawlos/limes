@@ -485,4 +485,95 @@ public class SinkShapesTests
         match.Api.ShouldBe(SinkApi.SqlCommandBuilderAppend);
         match.SizeProvenance.ShouldBe("sql");
     }
+
+    [Fact]
+    public void MatchCommandBuilderAppend_Untainted_ReturnsNull()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.CommandBuilderFixtures::DoAppendWithParameters(Weasel.Postgresql.IFakeCommandBuilder,System.String)");
+
+        var call = m.Body.Instructions.Single(i =>
+            (i.OpCode == Mono.Cecil.Cil.OpCodes.Call || i.OpCode == Mono.Cecil.Cil.OpCodes.Callvirt) &&
+            i.Operand is Mono.Cecil.MethodReference mr &&
+            mr.Name == "AppendWithParameters");
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);                       // receiver
+        stack.Push(StackSlot.Untainted);                       // SQL — untainted
+
+        SinkShapes.MatchCommandBuilderAppend(call, stack).ShouldBeNull();
+    }
+
+    [Fact]
+    public void MatchCommandBuilderAppend_WrongName_ReturnsNull()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.CommandBuilderFixtures::DoAppend(Weasel.Postgresql.IFakeCommandBuilder,System.String)");
+
+        // Method `Append` on the same interface — must not match (recognizer requires AppendWithParameters).
+        var call = m.Body.Instructions.Single(i =>
+            (i.OpCode == Mono.Cecil.Cil.OpCodes.Call || i.OpCode == Mono.Cecil.Cil.OpCodes.Callvirt) &&
+            i.Operand is Mono.Cecil.MethodReference mr &&
+            mr.Name == "Append");
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);                       // receiver
+        stack.Push(StackSlot.TaintedWith("sql"));              // SQL — tainted
+
+        SinkShapes.MatchCommandBuilderAppend(call, stack).ShouldBeNull();
+    }
+
+    [Fact]
+    public void MatchCommandBuilderAppend_ResolveFailure_FallbackHeuristic_Matches()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+
+        // Synthesize a MethodReference whose declaring type is in the Weasel.Postgresql
+        // namespace with `Command` in its name, but cannot be resolved.
+        var module = ctx.Assembly.MainModule;
+        var stringType = module.TypeSystem.String;
+        var voidType = module.TypeSystem.Void;
+        var declaringType = new Mono.Cecil.TypeReference("Weasel.Postgresql", "PostgresqlCommandBuilder", module, module);
+        var setter = new Mono.Cecil.MethodReference("AppendWithParameters", voidType, declaringType)
+        {
+            HasThis = true,
+        };
+        setter.Parameters.Add(new Mono.Cecil.ParameterDefinition(stringType));
+        var ins = Mono.Cecil.Cil.Instruction.Create(Mono.Cecil.Cil.OpCodes.Callvirt, setter);
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);                       // receiver
+        stack.Push(StackSlot.TaintedWith("sql"));              // SQL
+
+        var match = SinkShapes.MatchCommandBuilderAppend(ins, stack);
+
+        match.ShouldNotBeNull();
+        match!.Kind.ShouldBe(SinkKind.SqlInjection);
+        match.Api.ShouldBe(SinkApi.SqlCommandBuilderAppend);
+        match.SizeProvenance.ShouldBe("sql");
+    }
+
+    [Fact]
+    public void MatchCommandBuilderAppend_ResolveFailure_NoFallback_ReturnsNull()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+
+        // Unresolvable type in a NON-Weasel.Postgresql namespace — fallback must reject.
+        var module = ctx.Assembly.MainModule;
+        var stringType = module.TypeSystem.String;
+        var voidType = module.TypeSystem.Void;
+        var declaringType = new Mono.Cecil.TypeReference("Acme.QueryBuilder", "SomeCommandBuilder", module, module);
+        var setter = new Mono.Cecil.MethodReference("AppendWithParameters", voidType, declaringType)
+        {
+            HasThis = true,
+        };
+        setter.Parameters.Add(new Mono.Cecil.ParameterDefinition(stringType));
+        var ins = Mono.Cecil.Cil.Instruction.Create(Mono.Cecil.Cil.OpCodes.Callvirt, setter);
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);
+        stack.Push(StackSlot.TaintedWith("sql"));
+
+        SinkShapes.MatchCommandBuilderAppend(ins, stack).ShouldBeNull();
+    }
 }
