@@ -462,4 +462,27 @@ public class SinkShapesTests
         handled.ShouldBeFalse();
         state.Locals.ShouldBeEmpty();
     }
+
+    [Fact]
+    public void MatchCommandBuilderAppend_DirectICommandBuilder_Tainted_Matches()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.CommandBuilderFixtures::DoAppendWithParameters(Weasel.Postgresql.IFakeCommandBuilder,System.String)");
+
+        var call = m.Body.Instructions.Single(i =>
+            (i.OpCode == Mono.Cecil.Cil.OpCodes.Call || i.OpCode == Mono.Cecil.Cil.OpCodes.Callvirt) &&
+            i.Operand is Mono.Cecil.MethodReference mr &&
+            mr.Name == "AppendWithParameters");
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);                       // receiver (the IFakeCommandBuilder)
+        stack.Push(StackSlot.TaintedWith("sql"));              // arg0 (the SQL string) — Peek(0)
+
+        var match = SinkShapes.MatchCommandBuilderAppend(call, stack);
+
+        match.ShouldNotBeNull();
+        match!.Kind.ShouldBe(SinkKind.SqlInjection);
+        match.Api.ShouldBe(SinkApi.SqlCommandBuilderAppend);
+        match.SizeProvenance.ShouldBe("sql");
+    }
 }

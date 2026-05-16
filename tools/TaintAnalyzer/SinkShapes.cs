@@ -327,4 +327,73 @@ public static class SinkShapes
         state.Locals[vd.Index] = StackSlot.TaintedWith(prov);
         return true;
     }
+
+    // T2.1 sink: tainted string flowing into Weasel.Postgresql.ICommandBuilder::AppendWithParameters.
+    // Marten 8.36's FullTextWhereFragment.Apply emits SQL through this method, NOT through
+    // IDbCommand.set_CommandText. Read-only on state; mirrors MatchCommandTextSetter shape.
+    public static SinkMatch? MatchCommandBuilderAppend(Instruction instruction, SymbolicStack stack)
+    {
+        if (instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) return null;
+        if (instruction.Operand is not MethodReference mr) return null;
+        if (mr.Name != "AppendWithParameters") return null;
+        if (mr.Parameters.Count < 1) return null;
+        if (mr.Parameters[0].ParameterType.FullName != "System.String") return null;
+
+        var declaring = mr.DeclaringType;
+        var resolved = declaring.Resolve();
+        if (resolved is not null)
+        {
+            if (!ImplementsCommandBuilder(resolved)) return null;
+        }
+        else
+        {
+            if (!MatchesCommandBuilderHeuristic(declaring)) return null;
+        }
+
+        // Stack layout: [receiver, arg0, arg1, …, argN-1] with argN-1 at Peek(0).
+        // The SQL string (arg0) is at Peek(paramCount - 1).
+        int paramCount = mr.Parameters.Count;
+        int peekOffset = paramCount - 1;
+        if (stack.Depth < paramCount + 1) return null;
+        var sqlSlot = stack.Peek(peekOffset);
+        if (!sqlSlot.Tainted) return null;
+
+        return new SinkMatch
+        {
+            Kind = SinkKind.SqlInjection,
+            Api = SinkApi.SqlCommandBuilderAppend,
+            SizeProvenance = sqlSlot.Provenance,
+        };
+    }
+
+    private static bool ImplementsCommandBuilder(TypeDefinition td)
+    {
+        const string Target = "Weasel.Postgresql.ICommandBuilder";
+        const string TargetFake = "Weasel.Postgresql.IFakeCommandBuilder";  // test fixture
+
+        var current = td;
+        while (current is not null)
+        {
+            if (current.FullName == Target || current.FullName == TargetFake) return true;
+            foreach (var iface in current.Interfaces)
+            {
+                var ir = iface.InterfaceType;
+                if (ir.FullName == Target || ir.FullName == TargetFake) return true;
+                var iresolved = ir.Resolve();
+                if (iresolved is not null && (iresolved.FullName == Target || iresolved.FullName == TargetFake)) return true;
+            }
+            var baseType = current.BaseType;
+            current = baseType?.Resolve();
+        }
+        return false;
+    }
+
+    private static bool MatchesCommandBuilderHeuristic(TypeReference tr)
+    {
+        var ns = tr.Namespace ?? "";
+        if (!ns.StartsWith("Weasel.Postgresql", StringComparison.Ordinal)) return false;
+
+        var typeName = tr.Name ?? "";
+        return typeName.Contains("Command", StringComparison.Ordinal);
+    }
 }
