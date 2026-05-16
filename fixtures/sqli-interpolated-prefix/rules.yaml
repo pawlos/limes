@@ -1,0 +1,3 @@
+vuln_id: sqli-interpolated-prefix
+source_methods:
+  - InterpolatedSqliPoc.SearchService::Search(System.String)

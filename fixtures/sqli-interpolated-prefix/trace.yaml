@@ -1,0 +1,36 @@
+vuln_id: sqli-interpolated-prefix
+fix_commit: ""
+fix_pr: ""
+description: >
+  Synthetic regression fixture for milestone-T2 Phase 1: $"..." interpolation
+  flowing into IDbCommand.CommandText. SearchService.Search interpolates a
+  tainted regConfig parameter via DefaultInterpolatedStringHandler.AppendFormatted
+  (forced to handler emission via 5-part interpolation) into a SQL fragment,
+  then assigns to System.Data.Common.DbCommand.CommandText. The sink hop has
+  kind: sql_injection, api: sql_command_text. Tainted-value provenance reads
+  `InterpolatedString(regConfig).ToStringAndClear`, proving the T2 walker
+  primitive (TryHandleInterpolatedStringAppend) fired on the AppendFormatted
+  call and ToStringAndClear's byref-receiver over-approximation propagated to
+  the return value. Locked at milestone-T2 Phase 1; do not regenerate without
+  re-locking.
+source:
+  method: InterpolatedSqliPoc.SearchService.Search
+  file: InterpolatedSqliDemo.cs
+  line: 17
+  role: source
+  tainted_value_in: regConfig
+  transformation: read_stream
+  tainted_value_out: regConfig
+  kind: decoder_entry
+sink:
+  method: InterpolatedSqliPoc.SearchService.Search
+  file: InterpolatedSqliDemo.cs
+  line: 18
+  role: sink
+  tainted_value_in: InterpolatedString(regConfig).ToStringAndClear
+  transformation: identity
+  tainted_value_out: InterpolatedString(regConfig).ToStringAndClear
+  kind: sql_injection
+  api: sql_command_text
+path: []
+sanitizer_absence: []
