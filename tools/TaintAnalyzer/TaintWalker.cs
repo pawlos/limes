@@ -274,7 +274,8 @@ public sealed class TaintWalker
             ?? SinkShapes.MatchReadOnlySpanSlice(ins, state.Stack)
             ?? SinkShapes.MatchReadOnlySpanIndex(ins, state.Stack)
             ?? SinkShapes.MatchLocalloc(ins, state.Stack)
-            ?? SinkShapes.MatchHttpRead(ins, state.Stack);
+            ?? SinkShapes.MatchHttpRead(ins, state.Stack)
+            ?? SinkShapes.MatchCommandTextSetter(ins, state.Stack);
 
         if (m is null) return false;
 
