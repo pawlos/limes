@@ -393,4 +393,26 @@ public class SinkShapesTests
         state.Locals[0].Tainted.ShouldBeTrue();
         state.Locals[0].Provenance.ShouldBe("InterpolatedString(x)");
     }
+
+    [Fact]
+    public void TryHandleInterpolatedStringAppend_UntaintedValue_NoStateChange()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.InterpolatedStringFixtures::DoFormat(System.String)");
+
+        var call = m.Body.Instructions.First(i =>
+            i.OpCode == Mono.Cecil.Cil.OpCodes.Call &&
+            i.Operand is Mono.Cecil.MethodReference mr &&
+            mr.Name == "AppendFormatted" &&
+            mr.DeclaringType.FullName == "System.Runtime.CompilerServices.DefaultInterpolatedStringHandler");
+
+        var callee = (Mono.Cecil.MethodReference)call.Operand;
+        var argSlots = new[] { StackSlot.Untainted };
+        var state = new TaintState();
+
+        var handled = SinkShapes.TryHandleInterpolatedStringAppend(callee, call, argSlots, state);
+
+        handled.ShouldBeFalse();
+        state.Locals.ShouldBeEmpty();
+    }
 }
