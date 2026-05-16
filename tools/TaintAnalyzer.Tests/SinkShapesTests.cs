@@ -293,4 +293,22 @@ public class SinkShapesTests
 
         SinkShapes.MatchCommandTextSetter(setter, stack).ShouldBeNull();
     }
+
+    [Fact]
+    public void MatchCommandTextSetter_NonDbType_ReturnsNull()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.SqlSinkFixtures::AssignUnrelatedCommandText(TaintAnalyzer.Tests.Fixtures.UnrelatedCommandTextHolder,System.String)");
+
+        var setter = m.Body.Instructions.Single(i =>
+            (i.OpCode == Mono.Cecil.Cil.OpCodes.Call || i.OpCode == Mono.Cecil.Cil.OpCodes.Callvirt) &&
+            i.Operand is Mono.Cecil.MethodReference mr &&
+            mr.Name == "set_CommandText");
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);                       // receiver
+        stack.Push(StackSlot.TaintedWith("value"));            // value tainted, but type isn't DB
+
+        SinkShapes.MatchCommandTextSetter(setter, stack).ShouldBeNull();
+    }
 }
