@@ -303,19 +303,26 @@ public static class SinkShapes
         var valueSlot = argSlots[0];
         if (!valueSlot.Tainted) return false;
 
-        // Walk back from the call site to find the receiver's pusher. The receiver
-        // is the FIRST pushed of (totalPushers = paramCount + 1 for HasThis). Walk
-        // back paramCount steps past the value/extra-arg pushers; the next non-nop
-        // is the receiver pusher.
+        // Walk back from the call site to find the receiver's pusher (the ldloca that
+        // pushed the address of the handler local). We use net stack-balance tracking
+        // rather than naive instruction-counting: when an arg is itself produced by a
+        // transformer like `ldfld` (pops 1, pushes 1), walking back paramCount steps
+        // would land on the consumed-then-popped operand instead of the receiver.
+        // Net cumulative (push - pop) reaches totalPushers exactly at the receiver pusher.
         int totalPushers = callee.Parameters.Count + (callee.HasThis ? 1 : 0);
         var cur = call.Previous;
         Instruction? receiverPusher = null;
+        int balance = 0;
 
-        for (int slot = totalPushers - 1; slot >= 0 && cur is not null; slot--)
+        while (cur is not null)
         {
-            while (cur is not null && cur.OpCode.Code == Code.Nop) cur = cur.Previous;
-            if (cur is null) break;
-            if (slot == 0) receiverPusher = cur;
+            if (cur.OpCode.Code == Code.Nop) { cur = cur.Previous; continue; }
+            balance += ComputeStackPushes(cur) - ComputeStackPops(cur);
+            if (balance >= totalPushers)
+            {
+                receiverPusher = cur;
+                break;
+            }
             cur = cur.Previous;
         }
 
@@ -326,6 +333,62 @@ public static class SinkShapes
         var prov = $"InterpolatedString({valueSlot.Provenance})";
         state.Locals[vd.Index] = StackSlot.TaintedWith(prov);
         return true;
+    }
+
+    private static int ComputeStackPushes(Instruction ins)
+    {
+        if (ins.Operand is MethodReference mr &&
+            (ins.OpCode.Code == Code.Call || ins.OpCode.Code == Code.Callvirt
+             || ins.OpCode.Code == Code.Calli || ins.OpCode.Code == Code.Newobj))
+        {
+            if (ins.OpCode.Code == Code.Newobj) return 1;
+            return mr.ReturnType.FullName == "System.Void" ? 0 : 1;
+        }
+        return ins.OpCode.StackBehaviourPush switch
+        {
+            StackBehaviour.Push0 => 0,
+            StackBehaviour.Push1 => 1,
+            StackBehaviour.Push1_push1 => 2,
+            StackBehaviour.Pushi => 1,
+            StackBehaviour.Pushi8 => 1,
+            StackBehaviour.Pushr4 => 1,
+            StackBehaviour.Pushr8 => 1,
+            StackBehaviour.Pushref => 1,
+            _ => 0,
+        };
+    }
+
+    private static int ComputeStackPops(Instruction ins)
+    {
+        if (ins.Operand is MethodReference mr &&
+            (ins.OpCode.Code == Code.Call || ins.OpCode.Code == Code.Callvirt
+             || ins.OpCode.Code == Code.Calli || ins.OpCode.Code == Code.Newobj))
+        {
+            int pops = mr.Parameters.Count;
+            if (mr.HasThis && ins.OpCode.Code != Code.Newobj) pops += 1;
+            if (ins.OpCode.Code == Code.Calli) pops += 1;  // function pointer
+            return pops;
+        }
+        return ins.OpCode.StackBehaviourPop switch
+        {
+            StackBehaviour.Pop0 => 0,
+            StackBehaviour.Pop1 => 1,
+            StackBehaviour.Popi => 1,
+            StackBehaviour.Popref => 1,
+            StackBehaviour.Pop1_pop1 => 2,
+            StackBehaviour.Popi_popi => 2,
+            StackBehaviour.Popi_pop1 => 2,
+            StackBehaviour.Popi_popi8 => 2,
+            StackBehaviour.Popref_pop1 => 2,
+            StackBehaviour.Popref_popi => 2,
+            StackBehaviour.Popi_popi_popi => 3,
+            StackBehaviour.Popref_popi_popi => 3,
+            StackBehaviour.Popref_popi_popi8 => 3,
+            StackBehaviour.Popref_popi_popr4 => 3,
+            StackBehaviour.Popref_popi_popr8 => 3,
+            StackBehaviour.Popref_popi_popref => 3,
+            _ => 0,
+        };
     }
 
     // T2.1 sink: tainted string flowing into Weasel.Postgresql.ICommandBuilder::AppendWithParameters.
