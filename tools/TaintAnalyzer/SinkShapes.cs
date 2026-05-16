@@ -207,9 +207,14 @@ public static class SinkShapes
 
         var declaring = mr.DeclaringType;
         var resolved = declaring.Resolve();
-        if (resolved is null) return null;   // Task 8 extends this with the fallback heuristic.
-
-        if (!ImplementsIDbCommand(resolved)) return null;
+        if (resolved is not null)
+        {
+            if (!ImplementsIDbCommand(resolved)) return null;
+        }
+        else
+        {
+            if (!MatchesDbProviderHeuristic(declaring)) return null;
+        }
 
         if (stack.Depth < 2) return null;    // receiver + value
         var valueSlot = stack.Peek(0);
@@ -244,6 +249,23 @@ public static class SinkShapes
             current = baseType?.Resolve();
         }
         return false;
+    }
+
+    // Fallback when MethodReference.Resolve() returns null (declaring type's assembly
+    // not loaded). Accepts known ADO.NET provider namespaces with type names ending
+    // in "Command". Trades a small FP risk for the ability to scan apps that reference
+    // DB providers without us loading the provider assembly.
+    private static bool MatchesDbProviderHeuristic(TypeReference tr)
+    {
+        var typeName = tr.Name ?? "";
+        if (!typeName.EndsWith("Command", StringComparison.Ordinal)) return false;
+
+        var ns = tr.Namespace ?? "";
+        return ns.StartsWith("System.Data.", StringComparison.Ordinal)
+            || ns.StartsWith("Npgsql", StringComparison.Ordinal)
+            || ns.StartsWith("MySql", StringComparison.Ordinal)
+            || ns.StartsWith("Microsoft.Data.", StringComparison.Ordinal)
+            || ns.StartsWith("Microsoft.EntityFrameworkCore.", StringComparison.Ordinal);
     }
 
     private static bool ImplementsIDbCommandViaInterface(TypeDefinition iface, string target)

@@ -311,4 +311,34 @@ public class SinkShapesTests
 
         SinkShapes.MatchCommandTextSetter(setter, stack).ShouldBeNull();
     }
+
+    [Fact]
+    public void MatchCommandTextSetter_ResolveFailure_FallbackHeuristic_Matches()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+
+        // Synthesize a MethodReference whose declaring type is in the Npgsql namespace
+        // and ends with "Command" but cannot be resolved (no Npgsql assembly loaded).
+        var module = ctx.Assembly.MainModule;
+        var stringType = module.TypeSystem.String;
+        var voidType = module.TypeSystem.Void;
+        var declaringType = new Mono.Cecil.TypeReference("Npgsql", "NpgsqlCommand", module, module);
+        var setter = new Mono.Cecil.MethodReference("set_CommandText", voidType, declaringType)
+        {
+            HasThis = true,
+        };
+        setter.Parameters.Add(new Mono.Cecil.ParameterDefinition(stringType));
+        var ins = Mono.Cecil.Cil.Instruction.Create(Mono.Cecil.Cil.OpCodes.Callvirt, setter);
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);                       // receiver
+        stack.Push(StackSlot.TaintedWith("sql"));              // value
+
+        var match = SinkShapes.MatchCommandTextSetter(ins, stack);
+
+        match.ShouldNotBeNull();
+        match!.Kind.ShouldBe(SinkKind.SqlInjection);
+        match.Api.ShouldBe(SinkApi.SqlCommandText);
+        match.SizeProvenance.ShouldBe("sql");
+    }
 }
