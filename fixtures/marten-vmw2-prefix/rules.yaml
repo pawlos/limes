@@ -1,0 +1,7 @@
+vuln_id: marten-vmw2-prefix
+source_methods:
+  - signature: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment::Apply(Weasel.Postgresql.ICommandBuilder)
+    seed_this_fields:
+      - _regConfig
+      - _dataConfig
+      - _searchTerm

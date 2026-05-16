@@ -1,0 +1,64 @@
+vuln_id: marten-vmw2-prefix
+fix_commit: ""
+fix_pr: https://github.com/JasperFx/marten/pull/4343
+description: >
+  Real-world advisory fixture for GHSA-vmw2-qwm8-x84c (Marten <= 8.36 SQL
+  injection via FullTextWhereFragment.Sql interpolating user-controlled
+  regConfig). Source is FullTextWhereFragment.Apply with seed_this_fields
+  [_regConfig, _dataConfig, _searchTerm], NOT the public IQuerySession.SearchAsync
+  family — that public-API chain goes through a LINQ expression tree (closure
+  capture + Queryable.Where + IQueryProvider visitor parsing) which the analyzer
+  does not currently model. The CVE confirms regConfig DOES reach this fragment
+  from public API; this fixture proves the analyzer detects the SQL injection
+  given that reachability assumption. Walker primitive: T2 Phase 1's
+  TryHandleInterpolatedStringAppend on the $"..." in get_Sql (with the T2.1
+  net-stack-balance receiver-walk that supports ldfld-into-AppendFormatted
+  shapes). Sink matcher: T2.1's MatchCommandBuilderAppend on AppendWithParameters
+  (declaring type Weasel.Postgresql.ICommandBuilder is unresolvable when
+  scanning Marten alone, so the namespace-prefix fallback heuristic fires).
+  Locked at milestone-T2.1 Phase 2; do not regenerate without re-locking.
+source:
+  method: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment.Apply
+  file: ''
+  line: 0
+  role: source
+  tainted_value_in: builder
+  transformation: read_stream
+  tainted_value_out: builder
+  kind: decoder_entry
+sink:
+  method: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment.Apply
+  file: ''
+  line: 0
+  role: sink
+  tainted_value_in: FullTextWhereFragment.Sql
+  transformation: identity
+  tainted_value_out: FullTextWhereFragment.Sql
+  kind: sql_injection
+  api: sql_command_builder_append
+path:
+- hop: 0
+  method: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment.Apply
+  file: ''
+  line: 0
+  role: propagator
+  tainted_value_in: stream
+  transformation: identity
+  tainted_value_out: stream
+  dispatch:
+    kind: direct
+    static_type: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment
+    resolved_targets: []
+    closure_boundary: false
+- hop: 1
+  method: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment.get_Sql
+  file: ''
+  line: 0
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: _regConfig
+sanitizer_absence:
+- location: :0
+  expected_check: FullTextWhereFragment.Sql (via stream) must be bounded before reaching sql_command_builder_append at :0
+  tainted_value: FullTextWhereFragment.Sql (via stream)
