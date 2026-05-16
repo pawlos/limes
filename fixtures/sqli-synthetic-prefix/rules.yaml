@@ -1,0 +1,3 @@
+vuln_id: sqli-synthetic-prefix
+source_methods:
+  - SqliSyntheticPoc.SearchService::Search(System.String)

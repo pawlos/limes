@@ -1,0 +1,31 @@
+vuln_id: sqli-synthetic-prefix
+fix_commit: ""
+fix_pr: ""
+description: >
+  Synthetic regression fixture for milestone-T1 SQL-injection sink kind.
+  SqliSyntheticPoc.SearchService.Search concatenates a tainted string parameter
+  (regConfig) into a SQL fragment via String.Concat(string, string, string),
+  then assigns to System.Data.Common.DbCommand.CommandText. The sink hop has
+  kind: sql_injection, api: sql_command_text. Locked at milestone-T1; do not
+  regenerate without re-locking.
+source:
+  method: SqliSyntheticPoc.SearchService.Search
+  file: SqliDemo.cs
+  line: 17
+  role: source
+  tainted_value_in: regConfig
+  transformation: read_stream
+  tainted_value_out: regConfig
+  kind: decoder_entry
+sink:
+  method: SqliSyntheticPoc.SearchService.Search
+  file: SqliDemo.cs
+  line: 18
+  role: sink
+  tainted_value_in: String.Concat(regConfig)
+  transformation: identity
+  tainted_value_out: String.Concat(regConfig)
+  kind: sql_injection
+  api: sql_command_text
+path: []
+sanitizer_absence: []
