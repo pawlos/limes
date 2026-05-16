@@ -893,6 +893,15 @@ public sealed class TaintWalker
         }
         var receiverSlot = hasThisOnStack ? state.Stack.Pop() : default;
 
+        // DefaultInterpolatedStringHandler.AppendFormatted recognizer (milestone-T2 Phase 1).
+        // Propagates taint from a tainted value arg into the handler local, so subsequent
+        // ToStringAndClear() picks up taint via the standard byref-receiver-in-bitmask path.
+        // AppendFormatted returns void, so no stack push is needed after the early return.
+        if (SinkShapes.TryHandleInterpolatedStringAppend(callee, ins, argSlots, state))
+        {
+            return false;
+        }
+
         int bitmask = 0;
         for (int i = 0; i < paramCount; i++)
         {
