@@ -341,4 +341,30 @@ public class SinkShapesTests
         match.Api.ShouldBe(SinkApi.SqlCommandText);
         match.SizeProvenance.ShouldBe("sql");
     }
+
+    [Fact]
+    public void MatchCommandTextSetter_ResolveFailure_NoFallback_ReturnsNull()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+
+        // Unresolvable declaring type with namespace NOT in the DB-provider list.
+        // Type name ends in "Command" so the name half of the heuristic passes,
+        // but namespace doesn't qualify — overall fallback must reject.
+        var module = ctx.Assembly.MainModule;
+        var stringType = module.TypeSystem.String;
+        var voidType = module.TypeSystem.Void;
+        var declaringType = new Mono.Cecil.TypeReference("Acme.Logging", "LogCommand", module, module);
+        var setter = new Mono.Cecil.MethodReference("set_CommandText", voidType, declaringType)
+        {
+            HasThis = true,
+        };
+        setter.Parameters.Add(new Mono.Cecil.ParameterDefinition(stringType));
+        var ins = Mono.Cecil.Cil.Instruction.Create(Mono.Cecil.Cil.OpCodes.Callvirt, setter);
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);
+        stack.Push(StackSlot.TaintedWith("value"));
+
+        SinkShapes.MatchCommandTextSetter(ins, stack).ShouldBeNull();
+    }
 }
