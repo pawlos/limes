@@ -873,3 +873,25 @@ public static class ConvOvfFixtures
         return new byte[n];      // taint through local before conv.ovf.i
     }
 }
+
+public static class InterpolatedStringFixtures
+{
+    // Lowers to: handler.ctor + AppendLiteral("prefix") + AppendFormatted(x)
+    // + AppendLiteral("suffix") + ToStringAndClear. The recognizer targets the
+    // AppendFormatted call; the AppendLiteral guard test targets one of the
+    // AppendLiteral calls in the same body.
+    public static string DoFormat(string x) => $"prefix{x}suffix";
+}
+
+// Negative-case fixture: a class with an `AppendFormatted(string)` method on a
+// type that is NOT DefaultInterpolatedStringHandler. The recognizer must NOT
+// fire here.
+public sealed class FakeFormatter
+{
+    public void AppendFormatted(string value) { /* no-op */ }
+}
+
+public static class FakeFormatterFixtures
+{
+    public static void DoFakeFormat(FakeFormatter f, string s) => f.AppendFormatted(s);
+}
