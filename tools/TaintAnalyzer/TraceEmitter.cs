@@ -400,6 +400,7 @@ public static class TraceEmitter
         SinkApi.HttpContentRead => "http_content_read",
         SinkApi.HttpClientRead => "http_client_read",
         SinkApi.SqlCommandText => "sql_command_text",
+        SinkApi.SqlCommandBuilderAppend => "sql_command_builder_append",
         _ => null,
     };
 
