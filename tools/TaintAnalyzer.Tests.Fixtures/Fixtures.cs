@@ -897,3 +897,12 @@ public static class FakeFormatterFixtures
 {
     public static void DoFakeFormat(FakeFormatter f, string s) => f.AppendFormatted(s);
 }
+
+public static class CommandBuilderFixtures
+{
+    public static void DoAppendWithParameters(Weasel.Postgresql.IFakeCommandBuilder b, string sql)
+        => b.AppendWithParameters(sql);
+
+    public static void DoAppend(Weasel.Postgresql.IFakeCommandBuilder b, string sql)
+        => b.Append(sql);
+}
