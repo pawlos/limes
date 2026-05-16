@@ -280,4 +280,51 @@ public static class SinkShapes
         }
         return false;
     }
+
+    // Phase 1 walker primitive: tainted value flowing into
+    // DefaultInterpolatedStringHandler.AppendFormatted taints the handler local.
+    // Subsequent ToStringAndClear() on that local picks up taint via the existing
+    // HandleCall over-approximation (the byref-receiver lands in the call's bitmask).
+    //
+    // Returns true if the call was handled here; the caller (TaintWalker.HandleCall)
+    // should early-return after a true result, skipping default external-call
+    // dispatch (which would no-op for this call anyway, but avoids redundant work).
+    public static bool TryHandleInterpolatedStringAppend(
+        MethodReference callee,
+        Instruction call,
+        StackSlot[] argSlots,
+        TaintState state)
+    {
+        if (callee.DeclaringType.FullName != "System.Runtime.CompilerServices.DefaultInterpolatedStringHandler") return false;
+        if (callee.Name != "AppendFormatted") return false;
+        if (argSlots.Length == 0) return false;
+
+        // The value-arg is argSlots[0]. If it's untainted, nothing to propagate.
+        var valueSlot = argSlots[0];
+        if (!valueSlot.Tainted) return false;
+
+        // Walk back from the call site to find the receiver's pusher. The receiver
+        // is the FIRST pushed of (totalPushers = paramCount + 1 for HasThis). Walk
+        // back paramCount steps past the value/extra-arg pushers; the next non-nop
+        // is the receiver pusher.
+        int totalPushers = callee.Parameters.Count + (callee.HasThis ? 1 : 0);
+        var cur = call.Previous;
+        Instruction? receiverPusher = null;
+
+        for (int slot = totalPushers - 1; slot >= 0 && cur is not null; slot--)
+        {
+            while (cur is not null && cur.OpCode.Code == Code.Nop) cur = cur.Previous;
+            if (cur is null) break;
+            if (slot == 0) receiverPusher = cur;
+            cur = cur.Previous;
+        }
+
+        if (receiverPusher is null) return false;
+        if (receiverPusher.OpCode.Code != Code.Ldloca && receiverPusher.OpCode.Code != Code.Ldloca_S) return false;
+        if (receiverPusher.Operand is not VariableDefinition vd) return false;
+
+        var prov = $"InterpolatedString({valueSlot.Provenance})";
+        state.Locals[vd.Index] = StackSlot.TaintedWith(prov);
+        return true;
+    }
 }

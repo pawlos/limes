@@ -367,4 +367,30 @@ public class SinkShapesTests
 
         SinkShapes.MatchCommandTextSetter(ins, stack).ShouldBeNull();
     }
+
+    [Fact]
+    public void TryHandleInterpolatedStringAppend_TaintedValue_TaintsHandlerLocal()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.InterpolatedStringFixtures::DoFormat(System.String)");
+
+        // DoFormat has two AppendFormatted calls (5-part interpolation); pick the first.
+        var call = m.Body.Instructions.First(i =>
+            i.OpCode == Mono.Cecil.Cil.OpCodes.Call &&
+            i.Operand is Mono.Cecil.MethodReference mr &&
+            mr.Name == "AppendFormatted" &&
+            mr.DeclaringType.FullName == "System.Runtime.CompilerServices.DefaultInterpolatedStringHandler");
+
+        var callee = (Mono.Cecil.MethodReference)call.Operand;
+        var argSlots = new[] { StackSlot.TaintedWith("x") };
+        var state = new TaintState();
+
+        var handled = SinkShapes.TryHandleInterpolatedStringAppend(callee, call, argSlots, state);
+
+        handled.ShouldBeTrue();
+        // The handler local is V_0 (first local in the synthesized method body).
+        state.Locals.ShouldContainKey(0);
+        state.Locals[0].Tainted.ShouldBeTrue();
+        state.Locals[0].Provenance.ShouldBe("InterpolatedString(x)");
+    }
 }
