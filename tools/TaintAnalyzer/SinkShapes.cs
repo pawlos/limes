@@ -403,7 +403,9 @@ public static class SinkShapes
         if (mr.Parameters[0].ParameterType.FullName != "System.String") return null;
 
         var declaring = mr.DeclaringType;
-        var resolved = declaring.Resolve();
+        TypeDefinition? resolved;
+        try { resolved = declaring.Resolve(); }
+        catch (AssemblyResolutionException) { resolved = null; }
         if (resolved is not null)
         {
             if (!ImplementsCommandBuilder(resolved)) return null;
@@ -442,11 +444,14 @@ public static class SinkShapes
             {
                 var ir = iface.InterfaceType;
                 if (ir.FullName == Target || ir.FullName == TargetFake) return true;
-                var iresolved = ir.Resolve();
+                TypeDefinition? iresolved;
+                try { iresolved = ir.Resolve(); }
+                catch (AssemblyResolutionException) { iresolved = null; }
                 if (iresolved is not null && (iresolved.FullName == Target || iresolved.FullName == TargetFake)) return true;
             }
             var baseType = current.BaseType;
-            current = baseType?.Resolve();
+            try { current = baseType?.Resolve(); }
+            catch (AssemblyResolutionException) { current = null; }
         }
         return false;
     }
