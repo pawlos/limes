@@ -439,4 +439,27 @@ public class SinkShapesTests
         handled.ShouldBeFalse();
         state.Locals.ShouldBeEmpty();
     }
+
+    [Fact]
+    public void TryHandleInterpolatedStringAppend_NonHandlerType_ReturnsFalse()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.FakeFormatterFixtures::DoFakeFormat(TaintAnalyzer.Tests.Fixtures.FakeFormatter,System.String)");
+
+        // The call here is on FakeFormatter.AppendFormatted — same method name as the
+        // recognizer targets, but the declaring type is not the BCL handler.
+        var call = m.Body.Instructions.First(i =>
+            (i.OpCode == Mono.Cecil.Cil.OpCodes.Call || i.OpCode == Mono.Cecil.Cil.OpCodes.Callvirt) &&
+            i.Operand is Mono.Cecil.MethodReference mr &&
+            mr.Name == "AppendFormatted");
+
+        var callee = (Mono.Cecil.MethodReference)call.Operand;
+        var argSlots = new[] { StackSlot.TaintedWith("s") };
+        var state = new TaintState();
+
+        var handled = SinkShapes.TryHandleInterpolatedStringAppend(callee, call, argSlots, state);
+
+        handled.ShouldBeFalse();
+        state.Locals.ShouldBeEmpty();
+    }
 }
