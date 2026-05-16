@@ -1,0 +1,60 @@
+vuln_id: sqli-command-builder-prefix
+fix_commit: ""
+fix_pr: ""
+description: >
+  Synthetic regression fixture for milestone-T2.1 Phase 1: tainted this-field
+  flowing through $"..." interpolation into Weasel.Postgresql.ICommandBuilder
+  ::AppendWithParameters. SearchFragment.Apply is sourced with seed_this_fields:
+  [_regConfig], simulating "regConfig has reached this fragment from public API"
+  (the LINQ chain that public APIs go through is not modeled — see T2.1 spec).
+  Inside Apply, this.Sql calls go through DefaultInterpolatedStringHandler
+  (T2 Phase 1 recognizer fires; the receiver-walk uses stack-balance tracking
+  so ldfld-then-AppendFormatted shapes are now supported); the resulting
+  tainted string lands in ICommandBuilder.AppendWithParameters (T2.1 matcher
+  fires). Sink hop has kind: sql_injection, api: sql_command_builder_append.
+  Locked at milestone-T2.1 Phase 1; do not regenerate without re-locking.
+source:
+  method: CommandBuilderSqliPoc.SearchFragment.Apply
+  file: CommandBuilderSqliDemo.cs
+  line: 25
+  role: source
+  tainted_value_in: builder
+  transformation: read_stream
+  tainted_value_out: builder
+  kind: decoder_entry
+sink:
+  method: CommandBuilderSqliPoc.SearchFragment.Apply
+  file: CommandBuilderSqliDemo.cs
+  line: 26
+  role: sink
+  tainted_value_in: SearchFragment.Sql
+  transformation: identity
+  tainted_value_out: SearchFragment.Sql
+  kind: sql_injection
+  api: sql_command_builder_append
+path:
+- hop: 0
+  method: CommandBuilderSqliPoc.SearchFragment.Apply
+  file: CommandBuilderSqliDemo.cs
+  line: 26
+  role: propagator
+  tainted_value_in: stream
+  transformation: identity
+  tainted_value_out: stream
+  dispatch:
+    kind: direct
+    static_type: CommandBuilderSqliPoc.SearchFragment
+    resolved_targets: []
+    closure_boundary: false
+- hop: 1
+  method: CommandBuilderSqliPoc.SearchFragment.get_Sql
+  file: CommandBuilderSqliDemo.cs
+  line: 18
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: _regConfig
+sanitizer_absence:
+- location: CommandBuilderSqliDemo.cs:26
+  expected_check: SearchFragment.Sql (via stream) must be bounded before reaching sql_command_builder_append at CommandBuilderSqliDemo.cs:26
+  tainted_value: SearchFragment.Sql (via stream)

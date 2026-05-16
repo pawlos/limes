@@ -1,0 +1,5 @@
+vuln_id: sqli-command-builder-prefix
+source_methods:
+  - signature: CommandBuilderSqliPoc.SearchFragment::Apply(Weasel.Postgresql.ICommandBuilder)
+    seed_this_fields:
+      - _regConfig
