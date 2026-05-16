@@ -876,11 +876,13 @@ public static class ConvOvfFixtures
 
 public static class InterpolatedStringFixtures
 {
-    // Lowers to: handler.ctor + AppendLiteral("prefix") + AppendFormatted(x)
-    // + AppendLiteral("suffix") + ToStringAndClear. The recognizer targets the
-    // AppendFormatted call; the AppendLiteral guard test targets one of the
-    // AppendLiteral calls in the same body.
-    public static string DoFormat(string x) => $"prefix{x}suffix";
+    // Five-part interpolation: "a" + x + "b" + x + "c". Forces Roslyn to emit
+    // DefaultInterpolatedStringHandler (3-part / single-hole interpolations get
+    // optimized to String.Concat(s,s,s) and don't go through the handler at all).
+    // Lowers to: handler.ctor + AppendLiteral("a") + AppendFormatted(x)
+    // + AppendLiteral("b") + AppendFormatted(x) + AppendLiteral("c") + ToStringAndClear.
+    // The recognizer targets the first AppendFormatted call.
+    public static string DoFormat(string x) => $"a{x}b{x}c";
 }
 
 // Negative-case fixture: a class with an `AppendFormatted(string)` method on a
