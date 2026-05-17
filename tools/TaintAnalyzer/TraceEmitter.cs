@@ -40,10 +40,11 @@ public static class TraceEmitter
             else if (hops[i].Role == HopRole.Source) sourceIndices.Add(i);
         }
 
-        if (rawSinkIndices.Count == 0)
+        int rawSanitizerCount = hops.Count(h => h.Role == HopRole.Sanitizer);
+        if (rawSinkIndices.Count == 0 && rawSanitizerCount == 0)
         {
-            // No sinks reached — emit empty output. Caller (Program.cs) writes nothing to stdout
-            // / output file, indicating "analyzer found no tainted sink for these rules".
+            // No sinks AND no sanitizers — emit empty output. "Analyzer found no SQLi finding
+            // for these rules" (clean and silent, distinct from "patched and detected").
             return "";
         }
 
@@ -232,6 +233,46 @@ public static class TraceEmitter
                 Sink = PathNodeFromHop(sinkHop),
                 Path = pathNodes,
                 SanitizerAbsence = sinkAbsences,
+            };
+
+            if (sb.Length > 0) sb.Append("---\n");
+            sb.Append(s_serializer.Serialize(doc));
+        }
+
+        // T3 — emit a sanitizer-only document for each source that has at least one sanitizer
+        // hop after it but no sink hop in its range. Represents "Limes detected the fix" — the
+        // throw-shape guard was recognized and the walked source method does not reach a sink.
+        // The document omits `sink:` and has empty `sanitizer_absence:`.
+        for (int si = 0; si < sourceIndices.Count; si++)
+        {
+            int sourceIdx = sourceIndices[si];
+            int nextSourceIdx = si + 1 < sourceIndices.Count ? sourceIndices[si + 1] : hops.Count;
+
+            bool hasSinkForThisSource = sinkIndices.Any(idx => idx > sourceIdx && idx < nextSourceIdx);
+            if (hasSinkForThisSource) continue;  // already emitted by the sink loop above
+
+            var sanitizerHops = new List<HopRecord>();
+            for (int i = sourceIdx + 1; i < nextSourceIdx; i++)
+            {
+                if (hops[i].Role is HopRole.Propagator or HopRole.Sanitizer)
+                    sanitizerHops.Add(hops[i]);
+            }
+            if (!sanitizerHops.Any(h => h.Role == HopRole.Sanitizer)) continue;
+
+            var collapsed = CollapseAdjacentRedundantHops(sanitizerHops);
+            var pathNodes = new List<PathNode>(collapsed.Count);
+            for (int i = 0; i < collapsed.Count; i++)
+            {
+                pathNodes.Add(PathNodeFromHop(collapsed[i] with { Hop = i }));
+            }
+
+            var doc = new FixtureDocument
+            {
+                VulnId = rules.VulnId,
+                Source = PathNodeFromHop(hops[sourceIdx]),
+                Sink = null,
+                Path = pathNodes,
+                SanitizerAbsence = new List<SanitizerAbsence>(),
             };
 
             if (sb.Length > 0) sb.Append("---\n");
