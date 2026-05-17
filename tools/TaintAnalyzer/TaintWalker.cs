@@ -1239,6 +1239,14 @@ public sealed class TaintWalker
 
         if (MatchesAnyTaintedParam(target, method, argOffset, state)) return true;
 
+        // Sanitizer guards a `this`-field that was seeded as tainted (rules.yaml's
+        // seed_this_fields path). T2.1 introduced seeded this-fields as the entry-point shape
+        // for advisories whose vulnerable value reaches the source method through a
+        // constructor-stored field rather than a parameter. T3's regex matcher reports such
+        // fields as its target (e.g., "_regConfig"); without this branch, the throw-shape
+        // suppression would miss them and `sanitizer_absence` would still fire.
+        if (MatchesAnyTaintedThisField(target, state)) return true;
+
         // Indirect: target is a local variable — trace its source assignment.
         var localIdx = FindLocalIndex(target, method);
         if (localIdx is { } idx)
@@ -1248,6 +1256,21 @@ public sealed class TaintWalker
                 return true;
         }
 
+        return false;
+    }
+
+    private static bool MatchesAnyTaintedThisField(string name, TaintState state)
+    {
+        foreach (var (fieldFullName, slot) in state.ThisFields)
+        {
+            if (!slot.Tainted) continue;
+            // FieldFullName from Cecil: "ReturnType DeclaringType::FieldName".
+            var doubleColon = fieldFullName.IndexOf("::", StringComparison.Ordinal);
+            if (doubleColon < 0) continue;
+            var fieldName = fieldFullName.Substring(doubleColon + 2);
+            if (name == fieldName || name.StartsWith(fieldName + ".", StringComparison.Ordinal))
+                return true;
+        }
         return false;
     }
 

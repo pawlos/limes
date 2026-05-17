@@ -153,6 +153,19 @@ public static class TraceEmitter
             var sinkLocal = sinkHop.SizeExpression ?? sinkHop.AccessExpression ?? sinkHop.TaintedValueIn ?? "";
             var sinkProv = sinkHop.FirstTaintedProvenance ?? "";
             var chainTokens = BuildTransitiveValueChainTokens(sinkLocal + " " + sinkProv, pathHops, sinkHop.Method);
+            // Augment chain tokens with the `tainted_value_out` of every propagator hop in the
+            // sink's method — captures values loaded in the sink-method that feed cross-method
+            // chains (e.g., `ldfld _regConfig` whose value flows into a property getter call).
+            // The strict transitive walk only grows the chain when out-tokens overlap, which
+            // misses this case for fields loaded inline before being passed to a callee.
+            foreach (var h in pathHops)
+            {
+                if (h.Role != HopRole.Propagator) continue;
+                if (h.Method != sinkHop.Method) continue;
+                var outTokens = TokenizeForMatch(h.TaintedValueOut ?? "");
+                if (outTokens.Count == 0) outTokens = ShortTokens(h.TaintedValueOut ?? "");
+                foreach (var t in outTokens) chainTokens.Add(t);
+            }
             bool hasSanitizer = pathHops.Any(h =>
                 h.Role == HopRole.Sanitizer
                 && h.Method == sinkHop.Method
