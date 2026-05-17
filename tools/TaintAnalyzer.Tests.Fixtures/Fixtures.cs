@@ -906,3 +906,45 @@ public static class CommandBuilderFixtures
     public static void DoAppend(Weasel.Postgresql.IFakeCommandBuilder b, string sql)
         => b.Append(sql);
 }
+
+public static class RegexGuardFixtures
+{
+    private static readonly System.Text.RegularExpressions.Regex _staticPattern =
+        new(@"^[a-zA-Z_][a-zA-Z0-9_]*$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    public static void GuardInstanceThrow(string s)
+    {
+        if (!_staticPattern.IsMatch(s))
+            throw new System.ArgumentException("invalid", nameof(s));
+    }
+
+    public static void GuardStaticThrow(string s)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(s, "^[a-z]+$"))
+            throw new System.ArgumentException("invalid", nameof(s));
+    }
+
+    public static void GuardInstanceThrowInverted(string s)
+    {
+        if (_staticPattern.IsMatch(s))
+            throw new System.ArgumentException("invalid", nameof(s));
+    }
+
+    public static void GuardInstanceReturn(string s)
+    {
+        if (!_staticPattern.IsMatch(s)) return;
+    }
+
+    public static void GuardDynamicPatternThrow(string s, string pattern)
+    {
+        var regex = new System.Text.RegularExpressions.Regex(pattern);
+        if (!regex.IsMatch(s))
+            throw new System.ArgumentException("invalid", nameof(s));
+    }
+
+    public static void GuardNonRegexThrow(string s)
+    {
+        if (!s.StartsWith("x"))
+            throw new System.ArgumentException("invalid", nameof(s));
+    }
+}
