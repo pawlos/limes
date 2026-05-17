@@ -452,4 +452,67 @@ public class SanitizerShapesTests
         match.EstablishesBound.Target.ShouldBe("s");
         match.OnFailure.Kind.ShouldBe(FailureKind.Throw);
     }
+
+    [Fact]
+    public void MatchRegexIsMatchAndThrow_StaticOverload_Matches()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.RegexGuardFixtures::GuardStaticThrow(System.String)");
+
+        var match = RegexMatch(m);
+
+        match.ShouldNotBeNull();
+        match!.EstablishesBound.Relation.ShouldBe("regex_match");
+        match.EstablishesBound.UpperBound.ShouldBe("^[a-z]+$");
+        match.EstablishesBound.Target.ShouldBe("s");
+        match.OnFailure.Kind.ShouldBe(FailureKind.Throw);
+    }
+
+    [Fact]
+    public void MatchRegexIsMatchAndThrow_BranchInverted_Matches()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.RegexGuardFixtures::GuardInstanceThrowInverted(System.String)");
+
+        var match = RegexMatch(m);
+
+        match.ShouldNotBeNull();
+        match!.EstablishesBound.Relation.ShouldBe("regex_match");
+        match.EstablishesBound.UpperBound.ShouldBe("^[a-zA-Z_][a-zA-Z0-9_]*$");
+        match.OnFailure.Kind.ShouldBe(FailureKind.Throw);
+    }
+
+    [Fact]
+    public void MatchRegexIsMatchAndThrow_NoThrowOnUnsafePath_ReturnsEmpty()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.RegexGuardFixtures::GuardInstanceReturn(System.String)");
+
+        // Method falls back to early-return on unsafe path. T3 ships throw only — must not match.
+        RegexMatch(m).ShouldBeNull();
+    }
+
+    [Fact]
+    public void MatchRegexIsMatchAndThrow_PatternUnresolvable_ReturnsMatchWithNullPattern()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.RegexGuardFixtures::GuardDynamicPatternThrow(System.String,System.String)");
+
+        var match = RegexMatch(m);
+
+        match.ShouldNotBeNull();
+        match!.EstablishesBound.Relation.ShouldBe("regex_match");
+        match.EstablishesBound.UpperBound.ShouldBeNull();
+        match.OnFailure.Kind.ShouldBe(FailureKind.Throw);
+    }
+
+    [Fact]
+    public void MatchRegexIsMatchAndThrow_NonRegexBoolCall_ReturnsEmpty()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.RegexGuardFixtures::GuardNonRegexThrow(System.String)");
+
+        // Method calls String::StartsWith, not Regex::IsMatch — recognizer must require Regex.
+        RegexMatch(m).ShouldBeNull();
+    }
 }
