@@ -692,4 +692,45 @@ public class TraceEmitterTests
         var docs = yaml.Split("\n---\n");
         docs.Length.ShouldBe(2, "distinct-prefix sinks must each produce a document");
     }
+
+    [Fact]
+    public void Emit_SourceAndSanitizerNoSink_EmitsTrace()
+    {
+        var rules = new RulesDocument { VulnId = "test-sanitizer-only", SourceMethods = new() { "Ns.T::M(System.String)" } };
+        var source = new HopRecord
+        {
+            Hop = 0, Method = "Ns.T.M", File = "T.cs", Line = 10,
+            Role = HopRole.Source, TaintedValueIn = "arg", Transformation = "read_stream", TaintedValueOut = "arg",
+        };
+        var sanitizer = new HopRecord
+        {
+            Hop = 1, Method = "Ns.T.M", File = "T.cs", Line = 12,
+            Role = HopRole.Sanitizer, TaintedValueIn = "arg", Transformation = "identity", TaintedValueOut = "arg",
+            EstablishesBound = new EstablishesBound { Target = "arg", Relation = "regex_match", UpperBound = "^x$" },
+            OnFailure = new OnFailure { Kind = FailureKind.Throw, Exception = "System.ArgumentException" },
+        };
+
+        var yaml = TraceEmitter.Emit(rules, new[] { source, sanitizer }, Array.Empty<EmittedSanitizerAbsence>());
+
+        yaml.ShouldNotBeNullOrEmpty();
+        yaml.ShouldContain("role: sanitizer");
+        yaml.ShouldContain("relation: regex_match");
+        yaml.ShouldContain("source:");
+        yaml.ShouldNotContain("\nsink:");
+    }
+
+    [Fact]
+    public void Emit_SourceOnlyNoSanitizerNoSink_EmitsEmpty()
+    {
+        var rules = new RulesDocument { VulnId = "test-source-only", SourceMethods = new() { "T::S()" } };
+        var source = new HopRecord
+        {
+            Hop = 0, Method = "T.S", File = "T.cs", Line = 1,
+            Role = HopRole.Source, TaintedValueIn = "arg", Transformation = "read_stream", TaintedValueOut = "arg",
+        };
+
+        var yaml = TraceEmitter.Emit(rules, new[] { source }, Array.Empty<EmittedSanitizerAbsence>());
+
+        yaml.ShouldBeEmpty();
+    }
 }
