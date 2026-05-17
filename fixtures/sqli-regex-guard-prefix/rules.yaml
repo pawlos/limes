@@ -1,0 +1,5 @@
+vuln_id: sqli-regex-guard-prefix
+source_methods:
+  - signature: RegexGuardSqliPoc.GuardedSearchFragment::Apply(Weasel.Postgresql.ICommandBuilder)
+    seed_this_fields:
+      - _regConfig

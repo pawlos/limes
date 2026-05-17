@@ -1,0 +1,74 @@
+vuln_id: sqli-regex-guard-prefix
+fix_commit: ""
+fix_pr: ""
+description: >
+  Synthetic regression fixture for milestone-T3 Phase 1: tainted this-field
+  flowing through a regex-guarded $"..." interpolation into Weasel.Postgresql
+  .ICommandBuilder::AppendWithParameters. GuardedSearchFragment.Apply has an
+  inline `if (!_pattern.IsMatch(_regConfig)) throw` before the sink-reaching
+  code. The T3 sanitizer recognizer (MatchRegexIsMatchAndThrow) fires on this
+  IL shape, emits a sanitizer hop with relation: regex_match, and suppresses
+  `sanitizer_absence` via the in-method-propagator chain extension (the
+  ldfld _regConfig propagator brings the field name into the sink's value
+  chain so the sanitizer hop's target matches). Sink still fires (the IL
+  still reaches AppendWithParameters), but the trace shows the sanitizer
+  protection. Compare to fixtures/sqli-command-builder-prefix (T2.1 - same
+  shape MINUS the guard, fires sanitizer_absence). Locked at milestone-T3
+  Phase 1; do not regenerate without re-locking.
+source:
+  method: RegexGuardSqliPoc.GuardedSearchFragment.Apply
+  file: RegexGuardSqliDemo.cs
+  line: 23
+  role: source
+  tainted_value_in: builder
+  transformation: read_stream
+  tainted_value_out: builder
+  kind: decoder_entry
+sink:
+  method: RegexGuardSqliPoc.GuardedSearchFragment.Apply
+  file: RegexGuardSqliDemo.cs
+  line: 27
+  role: sink
+  tainted_value_in: GuardedSearchFragment.Sql
+  transformation: identity
+  tainted_value_out: GuardedSearchFragment.Sql
+  kind: sql_injection
+  api: sql_command_builder_append
+path:
+- hop: 0
+  method: RegexGuardSqliPoc.GuardedSearchFragment.Apply
+  file: RegexGuardSqliDemo.cs
+  line: 25
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: _regConfig
+- hop: 1
+  method: RegexGuardSqliPoc.GuardedSearchFragment.Apply
+  file: RegexGuardSqliDemo.cs
+  line: 25
+  role: sanitizer
+  tainted_value_in: _regConfig
+  transformation: identity
+  tainted_value_out: _regConfig
+  dispatch:
+    kind: direct
+    static_type: RegexGuardSqliPoc.GuardedSearchFragment
+    resolved_targets: []
+    closure_boundary: false
+  establishes_bound:
+    target: _regConfig
+    relation: regex_match
+    upper_bound: ^[a-zA-Z_][a-zA-Z0-9_]*$
+    vacuous_upper_bound: false
+  on_failure:
+    kind: throw
+- hop: 2
+  method: RegexGuardSqliPoc.GuardedSearchFragment.get_Sql
+  file: RegexGuardSqliDemo.cs
+  line: 20
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: _regConfig
+sanitizer_absence: []
