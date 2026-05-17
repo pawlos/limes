@@ -1,0 +1,3 @@
+vuln_id: marten-vmw2-postfix
+source_methods:
+  - signature: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment::.ctor(Marten.Schema.DocumentMapping,Marten.Linq.Parsing.Methods.FullText.FullTextSearchFunction,System.String,System.String)

@@ -1,0 +1,86 @@
+vuln_id: marten-vmw2-postfix
+fix_commit: ""
+fix_pr: https://github.com/JasperFx/marten/pull/4343
+description: >
+  Real-world advisory fix lock for GHSA-vmw2-qwm8-x84c. Marten 8.37 adds a
+  Regex.IsMatch guard in FullTextWhereFragment's constructor (via the
+  ValidateRegConfig helper) that rejects regConfig values not matching
+  ^[a-zA-Z_][a-zA-Z0-9_]{0,62}(\.[a-zA-Z_][a-zA-Z0-9_]{0,62})?$. Source is
+  FullTextWhereFragment::.ctor with parameter-bitmask seeding. T3's
+  MatchRegexIsMatchAndThrow recognizer fires inside the ValidateRegConfig
+  helper called from the ctor; the trace contains source + sanitizer hop
+  with no sink - the TraceEmitter's "patched" output shape. Compare against
+  fixtures/marten-vmw2-prefix (T2.1's lock against 8.36) to see Limes
+  distinguishing vulnerable from patched on the same advisory. Locked at
+  milestone-T3 Phase 2; do not regenerate without re-locking.
+source:
+  method: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment..ctor
+  file: ''
+  line: 0
+  role: source
+  tainted_value_in: mapping
+  transformation: read_stream
+  tainted_value_out: mapping
+  kind: decoder_entry
+path:
+- hop: 0
+  method: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment..ctor
+  file: ''
+  line: 0
+  role: propagator
+  tainted_value_in: stream
+  transformation: identity
+  tainted_value_out: stream
+  dispatch:
+    kind: direct
+    static_type: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment
+    resolved_targets: []
+    closure_boundary: false
+- hop: 1
+  method: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment.ValidateRegConfig
+  file: ''
+  line: 0
+  role: sanitizer
+  tainted_value_in: regConfig
+  transformation: identity
+  tainted_value_out: regConfig
+  dispatch:
+    kind: direct
+    static_type: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment
+    resolved_targets: []
+    closure_boundary: false
+  establishes_bound:
+    target: regConfig
+    relation: regex_match
+    upper_bound: ^[a-zA-Z_][a-zA-Z0-9_]{0,62}(\.[a-zA-Z_][a-zA-Z0-9_]{0,62})?$
+    vacuous_upper_bound: false
+  on_failure:
+    kind: throw
+- hop: 2
+  method: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment..ctor
+  file: ''
+  line: 0
+  role: propagator
+  tainted_value_in: mapping
+  transformation: identity
+  tainted_value_out: FullTextWhereFragment.GetDataConfig
+  dispatch:
+    kind: direct
+    static_type: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment
+    resolved_targets: []
+    closure_boundary: false
+- hop: 3
+  method: Marten.Linq.SqlGeneration.Filters.FullTextWhereFragment.GetDataConfig
+  file: ''
+  line: 0
+  role: propagator
+  tainted_value_in: mapping
+  transformation: identity
+  tainted_value_out: DocumentMapping.Indexes
+  dispatch:
+    kind: virtual
+    static_type: Marten.Schema.DocumentMapping
+    resolved_targets:
+    - Marten.Schema.DocumentMapping::get_Indexes
+    closure_boundary: true
+sanitizer_absence: []
