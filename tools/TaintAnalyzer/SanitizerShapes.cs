@@ -270,14 +270,31 @@ public static class SanitizerShapes
 
     public static IEnumerable<SanitizerMatch> MatchAll(MethodDefinition method)
     {
-        // Yield matches across both failure-kinds and the regex-validator matcher, ordered by
-        // IL offset so a method with multiple sanitizer shapes interleaves them correctly.
+        // Yield matches across both failure-kinds and the regex-validator matcher. Dedupe by
+        // ComparisonIlOffset so a `Regex.IsMatch + brfalse` pattern doesn't surface as BOTH a
+        // numeric comparison (the existing matcher sees `ldc.i4.0; ceq; brfalse` as `x != 0`)
+        // AND a regex_match (ours). Regex match wins when both are at the same offset.
         var matches = new List<SanitizerMatch>();
         matches.AddRange(MatchAllOfKind(method, FailureKind.Throw));
         matches.AddRange(MatchAllOfKind(method, FailureKind.ReturnEarly));
         matches.AddRange(MatchRegexIsMatchAndThrow(method));
-        matches.Sort((a, b) => a.ComparisonIlOffset.CompareTo(b.ComparisonIlOffset));
-        return matches;
+
+        var byOffset = new Dictionary<int, SanitizerMatch>();
+        foreach (var m in matches)
+        {
+            if (byOffset.TryGetValue(m.ComparisonIlOffset, out var existing))
+            {
+                // Regex match takes precedence over numeric.
+                if (m.EstablishesBound.Relation == "regex_match" && existing.EstablishesBound.Relation != "regex_match")
+                    byOffset[m.ComparisonIlOffset] = m;
+                continue;
+            }
+            byOffset[m.ComparisonIlOffset] = m;
+        }
+
+        var deduped = byOffset.Values.ToList();
+        deduped.Sort((a, b) => a.ComparisonIlOffset.CompareTo(b.ComparisonIlOffset));
+        return deduped;
     }
 
     private static IEnumerable<SanitizerMatch> MatchAllOfKind(MethodDefinition method, FailureKind requiredFailureKind)
@@ -1447,41 +1464,53 @@ public static class SanitizerShapes
                         ? null
                         : ResolveExceptionType(SafeResolve(sides.ThrowHelper) ?? sides.ThrowHelper.Resolve()),
                 },
-                ComparisonIlOffset = prev.Offset,
+                // Use the branch instruction's offset (same convention as MatchCompareAndThrow)
+                // so MatchAll can dedupe: when both matchers fire on the same branch — e.g.,
+                // Roslyn's `if (!IsMatch(x))` emits `ldc.i4.0; ceq; brfalse` which the existing
+                // numeric matcher also sees — the regex-match wins and the numeric match is
+                // dropped.
+                ComparisonIlOffset = ins.Offset,
             };
         }
     }
 
+    // The tainted-value arg for IsMatch is always the INPUT string — param 0 for static
+    // (bool IsMatch(string input, string pattern)) and the only param for instance
+    // (bool IsMatch(string input)). Walk back from the call across the producer of arg N-1
+    // first (pattern for static, input for instance) to find arg 0's producer.
     private static string? ResolveIsMatchTargetName(Instruction callIns, MethodDefinition method)
     {
         if (callIns.Operand is not MethodReference mr) return null;
-        int totalPushers = mr.Parameters.Count + (mr.HasThis ? 1 : 0);
-        if (totalPushers == 0) return null;
+        int paramCount = mr.Parameters.Count;
+        if (paramCount == 0) return null;
 
+        // For instance with 1 param: top-of-stack is the input. The previous non-nop is its producer.
+        // For static with 2 params: top is pattern; walk back across pattern's stack contribution
+        // (single +1) to find input's producer.
         var cur = callIns.Previous;
+        while (cur is not null && cur.OpCode.Code == Code.Nop) cur = cur.Previous;
+        if (cur is null) return null;
+
+        if (mr.HasThis)
+        {
+            // Instance overload (paramCount == 1): top-of-stack producer is the input.
+            return OperandName(cur, method);
+        }
+
+        // Static overload: walk back across the second arg (pattern) using net stack balance,
+        // then read the input producer.
         int balance = 0;
-        Instruction? bottomPusher = null;
         while (cur is not null)
         {
             if (cur.OpCode.Code == Code.Nop) { cur = cur.Previous; continue; }
             balance += StackEffectPushes(cur) - StackEffectPops(cur);
-            if (balance >= totalPushers) { bottomPusher = cur; break; }
+            if (balance >= 1) break;
             cur = cur.Previous;
         }
-        if (bottomPusher is null) return null;
-
-        if (!mr.HasThis)
-        {
-            return OperandName(bottomPusher, method);
-        }
-        var p = bottomPusher.Next;
-        while (p is not null && p != callIns)
-        {
-            if (p.OpCode.Code != Code.Nop && StackEffectPushes(p) > 0)
-                return OperandName(p, method);
-            p = p.Next;
-        }
-        return null;
+        // cur is now the pattern producer. Walk back one more arg.
+        var inputCandidate = cur?.Previous;
+        while (inputCandidate is not null && inputCandidate.OpCode.Code == Code.Nop) inputCandidate = inputCandidate.Previous;
+        return inputCandidate is null ? null : OperandName(inputCandidate, method);
     }
 
     private static string? TryExtractRegexPattern(Instruction callIns, MethodDefinition method)
