@@ -270,12 +270,12 @@ public static class SanitizerShapes
 
     public static IEnumerable<SanitizerMatch> MatchAll(MethodDefinition method)
     {
-        // Yield matches across both failure-kinds, ordered by IL offset (already true since
-        // each kind iterates the same body in order; we merge by offset to interleave both kinds
-        // if a method had a mix).
+        // Yield matches across both failure-kinds and the regex-validator matcher, ordered by
+        // IL offset so a method with multiple sanitizer shapes interleaves them correctly.
         var matches = new List<SanitizerMatch>();
         matches.AddRange(MatchAllOfKind(method, FailureKind.Throw));
         matches.AddRange(MatchAllOfKind(method, FailureKind.ReturnEarly));
+        matches.AddRange(MatchRegexIsMatchAndThrow(method));
         matches.Sort((a, b) => a.ComparisonIlOffset.CompareTo(b.ComparisonIlOffset));
         return matches;
     }
