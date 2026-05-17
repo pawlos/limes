@@ -1396,4 +1396,280 @@ public static class SanitizerShapes
         try { return fr.Resolve(); }
         catch { return null; }
     }
+
+    // T3 sanitizer: <load tainted>; call/callvirt Regex::IsMatch; brfalse/brtrue → throw.
+    // Recognizes both the instance overload (bool IsMatch(string)) and the static overload
+    // (bool IsMatch(string, string)). Pattern is extracted best-effort: static overload from
+    // inline ldstr; instance overload from the static-readonly field's .cctor or from
+    // instance ctors. If extraction fails the match still fires with UpperBound = null.
+    public static IEnumerable<SanitizerMatch> MatchRegexIsMatchAndThrow(MethodDefinition method)
+    {
+        if (method.Body is null) yield break;
+
+        foreach (var ins in method.Body.Instructions)
+        {
+            if (ins.OpCode.FlowControl != FlowControl.Cond_Branch) continue;
+            var code = ins.OpCode.Code;
+            if (code != Code.Brfalse && code != Code.Brfalse_S
+                && code != Code.Brtrue && code != Code.Brtrue_S) continue;
+
+            // Walk back to the IsMatch call, skipping Debug-mode boolean materialization
+            // (Stloc/Ldloc pair) and the negation pattern (Ldc.i4.0; Ceq) that Roslyn emits
+            // for `if (!IsMatch(...))`. Stops at the first non-skippable instruction.
+            var prev = SkipBoolMaterializationBackward(ins.Previous);
+            if (prev is null) continue;
+            if (prev.OpCode.Code != Code.Call && prev.OpCode.Code != Code.Callvirt) continue;
+            if (prev.Operand is not MethodReference mr) continue;
+            if (mr.DeclaringType.FullName != "System.Text.RegularExpressions.Regex") continue;
+            if (mr.Name != "IsMatch") continue;
+
+            var sides = DetectBranchSides(ins, method);
+            if (sides is null) continue;
+            if (sides.FailureKind != FailureKind.Throw) continue;
+
+            string target = ResolveIsMatchTargetName(prev, method) ?? "input";
+            string? pattern = TryExtractRegexPattern(prev, method);
+
+            yield return new SanitizerMatch
+            {
+                EstablishesBound = new EstablishesBound
+                {
+                    Target = target,
+                    Relation = "regex_match",
+                    UpperBound = pattern,
+                    LowerBound = null,
+                    VacuousUpperBound = false,
+                },
+                OnFailure = new OnFailure
+                {
+                    Kind = FailureKind.Throw,
+                    Exception = sides.ThrowHelper is null
+                        ? null
+                        : ResolveExceptionType(SafeResolve(sides.ThrowHelper) ?? sides.ThrowHelper.Resolve()),
+                },
+                ComparisonIlOffset = prev.Offset,
+            };
+        }
+    }
+
+    private static string? ResolveIsMatchTargetName(Instruction callIns, MethodDefinition method)
+    {
+        if (callIns.Operand is not MethodReference mr) return null;
+        int totalPushers = mr.Parameters.Count + (mr.HasThis ? 1 : 0);
+        if (totalPushers == 0) return null;
+
+        var cur = callIns.Previous;
+        int balance = 0;
+        Instruction? bottomPusher = null;
+        while (cur is not null)
+        {
+            if (cur.OpCode.Code == Code.Nop) { cur = cur.Previous; continue; }
+            balance += StackEffectPushes(cur) - StackEffectPops(cur);
+            if (balance >= totalPushers) { bottomPusher = cur; break; }
+            cur = cur.Previous;
+        }
+        if (bottomPusher is null) return null;
+
+        if (!mr.HasThis)
+        {
+            return OperandName(bottomPusher, method);
+        }
+        var p = bottomPusher.Next;
+        while (p is not null && p != callIns)
+        {
+            if (p.OpCode.Code != Code.Nop && StackEffectPushes(p) > 0)
+                return OperandName(p, method);
+            p = p.Next;
+        }
+        return null;
+    }
+
+    private static string? TryExtractRegexPattern(Instruction callIns, MethodDefinition method)
+    {
+        try
+        {
+            if (callIns.Operand is not MethodReference mr) return null;
+
+            if (!mr.HasThis)
+            {
+                // Static overload: pattern is param 1 (the second arg).
+                var cur = callIns.Previous;
+                while (cur is not null && cur.OpCode.Code == Code.Nop) cur = cur.Previous;
+                if (cur is null) return null;
+                if (cur.OpCode.Code == Code.Ldstr && cur.Operand is string s) return s;
+                return null;
+            }
+
+            // Instance overload: walk back to the Regex receiver-pusher.
+            int totalPushers = mr.Parameters.Count + (mr.HasThis ? 1 : 0);
+            var cw = callIns.Previous;
+            int balance = 0;
+            Instruction? receiverPusher = null;
+            while (cw is not null)
+            {
+                if (cw.OpCode.Code == Code.Nop) { cw = cw.Previous; continue; }
+                balance += StackEffectPushes(cw) - StackEffectPops(cw);
+                if (balance >= totalPushers) { receiverPusher = cw; break; }
+                cw = cw.Previous;
+            }
+            if (receiverPusher is null) return null;
+
+            FieldReference? regexFieldRef = null;
+            bool isStaticField = false;
+            if (receiverPusher.OpCode.Code == Code.Ldsfld && receiverPusher.Operand is FieldReference sf)
+            {
+                regexFieldRef = sf; isStaticField = true;
+            }
+            else if (receiverPusher.OpCode.Code == Code.Ldfld && receiverPusher.Operand is FieldReference ff)
+            {
+                regexFieldRef = ff; isStaticField = false;
+            }
+            else return null;
+
+            FieldDefinition? regexField;
+            try { regexField = regexFieldRef.Resolve(); }
+            catch (AssemblyResolutionException) { return null; }
+            if (regexField is null) return null;
+
+            var ctorsToScan = isStaticField
+                ? regexField.DeclaringType.Methods.Where(m => m.IsConstructor && m.IsStatic)
+                : regexField.DeclaringType.Methods.Where(m => m.IsConstructor && !m.IsStatic);
+
+            foreach (var ctor in ctorsToScan)
+            {
+                if (ctor.Body is null) continue;
+                foreach (var bi in ctor.Body.Instructions)
+                {
+                    bool isStoreToField =
+                        (bi.OpCode.Code == Code.Stsfld || bi.OpCode.Code == Code.Stfld)
+                        && bi.Operand is FieldReference fr2
+                        && fr2.FullName == regexFieldRef.FullName;
+                    if (!isStoreToField) continue;
+
+                    var b = bi.Previous;
+                    Instruction? newobj = null;
+                    while (b is not null)
+                    {
+                        if (b.OpCode.Code == Code.Newobj
+                            && b.Operand is MethodReference cr
+                            && cr.DeclaringType.FullName == "System.Text.RegularExpressions.Regex")
+                        {
+                            newobj = b; break;
+                        }
+                        b = b.Previous;
+                    }
+                    if (newobj is null) continue;
+
+                    if (newobj.Operand is not MethodReference newobjMr) continue;
+                    int newobjPushers = newobjMr.Parameters.Count;
+                    var c = newobj.Previous;
+                    int bal = 0;
+                    Instruction? patternPusher = null;
+                    while (c is not null)
+                    {
+                        if (c.OpCode.Code == Code.Nop) { c = c.Previous; continue; }
+                        bal += StackEffectPushes(c) - StackEffectPops(c);
+                        if (bal >= newobjPushers) { patternPusher = c; break; }
+                        c = c.Previous;
+                    }
+                    if (patternPusher is null) continue;
+                    if (patternPusher.OpCode.Code == Code.Ldstr && patternPusher.Operand is string lit)
+                        return lit;
+                }
+            }
+            return null;
+        }
+        catch (AssemblyResolutionException)
+        {
+            return null;
+        }
+    }
+
+    // Walks back from a conditional branch through Debug-mode boolean materialization patterns:
+    //   * Stloc/Ldloc pair (the result was stored to a local and reloaded);
+    //   * Ldc.i4.0; Ceq (Roslyn's emission of the `!x` operator);
+    //   * any Nop.
+    // Returns the first instruction that doesn't fit those patterns — typically the call that
+    // produced the boolean value.
+    private static Instruction? SkipBoolMaterializationBackward(Instruction? start)
+    {
+        var cur = start;
+        while (cur is not null)
+        {
+            if (cur.OpCode.Code == Code.Nop) { cur = cur.Previous; continue; }
+            // Ldloc.0..Ldloc.s preceded by Stloc.* → skip the pair.
+            if ((cur.OpCode.Code is Code.Ldloc or Code.Ldloc_0 or Code.Ldloc_1 or Code.Ldloc_2 or Code.Ldloc_3 or Code.Ldloc_S)
+                && cur.Previous is { } p && (p.OpCode.Code is Code.Stloc or Code.Stloc_0 or Code.Stloc_1 or Code.Stloc_2 or Code.Stloc_3 or Code.Stloc_S))
+            {
+                cur = p.Previous;
+                continue;
+            }
+            // Ceq preceded by Ldc.i4.0 → the negation pattern; skip both.
+            if (cur.OpCode.Code == Code.Ceq
+                && cur.Previous is { } q
+                && (q.OpCode.Code == Code.Ldc_I4_0))
+            {
+                cur = q.Previous;
+                continue;
+            }
+            return cur;
+        }
+        return null;
+    }
+
+    private static int StackEffectPushes(Instruction ins)
+    {
+        if (ins.Operand is MethodReference mr2 &&
+            (ins.OpCode.Code == Code.Call || ins.OpCode.Code == Code.Callvirt
+             || ins.OpCode.Code == Code.Calli || ins.OpCode.Code == Code.Newobj))
+        {
+            if (ins.OpCode.Code == Code.Newobj) return 1;
+            return mr2.ReturnType.FullName == "System.Void" ? 0 : 1;
+        }
+        return ins.OpCode.StackBehaviourPush switch
+        {
+            StackBehaviour.Push0 => 0,
+            StackBehaviour.Push1 => 1,
+            StackBehaviour.Push1_push1 => 2,
+            StackBehaviour.Pushi => 1,
+            StackBehaviour.Pushi8 => 1,
+            StackBehaviour.Pushr4 => 1,
+            StackBehaviour.Pushr8 => 1,
+            StackBehaviour.Pushref => 1,
+            _ => 0,
+        };
+    }
+
+    private static int StackEffectPops(Instruction ins)
+    {
+        if (ins.Operand is MethodReference mr3 &&
+            (ins.OpCode.Code == Code.Call || ins.OpCode.Code == Code.Callvirt
+             || ins.OpCode.Code == Code.Calli || ins.OpCode.Code == Code.Newobj))
+        {
+            int pops = mr3.Parameters.Count;
+            if (mr3.HasThis && ins.OpCode.Code != Code.Newobj) pops += 1;
+            if (ins.OpCode.Code == Code.Calli) pops += 1;
+            return pops;
+        }
+        return ins.OpCode.StackBehaviourPop switch
+        {
+            StackBehaviour.Pop0 => 0,
+            StackBehaviour.Pop1 => 1,
+            StackBehaviour.Popi => 1,
+            StackBehaviour.Popref => 1,
+            StackBehaviour.Pop1_pop1 => 2,
+            StackBehaviour.Popi_popi => 2,
+            StackBehaviour.Popi_pop1 => 2,
+            StackBehaviour.Popi_popi8 => 2,
+            StackBehaviour.Popref_pop1 => 2,
+            StackBehaviour.Popref_popi => 2,
+            StackBehaviour.Popi_popi_popi => 3,
+            StackBehaviour.Popref_popi_popi => 3,
+            StackBehaviour.Popref_popi_popi8 => 3,
+            StackBehaviour.Popref_popi_popr4 => 3,
+            StackBehaviour.Popref_popi_popr8 => 3,
+            StackBehaviour.Popref_popi_popref => 3,
+            _ => 0,
+        };
+    }
 }

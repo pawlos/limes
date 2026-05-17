@@ -432,4 +432,24 @@ public class SanitizerShapesTests
 
     private static bool IsConditionalBranch(OpCode op)
         => op.FlowControl == FlowControl.Cond_Branch && op.Code != Code.Switch;
+
+    // --- T3: MatchRegexIsMatchAndThrow tests ---
+
+    private static SanitizerMatch? RegexMatch(MethodDefinition m)
+        => SanitizerShapes.MatchRegexIsMatchAndThrow(m).FirstOrDefault();
+
+    [Fact]
+    public void MatchRegexIsMatchAndThrow_InstanceRegexOnStaticField_Matches()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.RegexGuardFixtures::GuardInstanceThrow(System.String)");
+
+        var match = RegexMatch(m);
+
+        match.ShouldNotBeNull();
+        match!.EstablishesBound.Relation.ShouldBe("regex_match");
+        match.EstablishesBound.UpperBound.ShouldBe("^[a-zA-Z_][a-zA-Z0-9_]*$");
+        match.EstablishesBound.Target.ShouldBe("s");
+        match.OnFailure.Kind.ShouldBe(FailureKind.Throw);
+    }
 }
