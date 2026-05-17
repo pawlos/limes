@@ -1048,8 +1048,14 @@ public sealed class TaintWalker
         if (!calleeSummary.AppliedThrowShapeSanitiser)
             TaintBufferLikeArgsFromCall(callerMethod, ins, callee, anyTaintedInput, state);
 
-        // Emit a propagator hop for the call boundary if any taint flowed through (return or this-field).
-        if (callReturnIsTainted || calleeSummary.NewlyTaintedThisFields.Count > 0 || calleeSummary.ReachedSink)
+        // Emit a propagator hop for the call boundary if any taint flowed through (return or this-field)
+        // OR if the callee fired a throw-shape sanitizer on a tainted argument. The latter case
+        // covers void helpers like Marten 8.37's `ValidateRegConfig(regConfig)`: no taint outputs,
+        // but the regex guard IS a meaningful trace event the caller needs to see.
+        if (callReturnIsTainted
+            || calleeSummary.NewlyTaintedThisFields.Count > 0
+            || calleeSummary.ReachedSink
+            || calleeSummary.AppliedThrowShapeSanitiser)
         {
             var dispatch = CallGraph.ResolveCallSite(callerMethod, ins, receiverStaticType: null, _context);
             string valueIn;
