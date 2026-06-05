@@ -193,28 +193,50 @@ public static class SinkShapes
         };
     }
 
+    // Shared signature-level recognition of a SQL-sink call site (no stack inspection).
+    // Used by BOTH the runtime sink matchers below AND SqlSinkReachability's static gate,
+    // so the two cannot drift. A "SQL sink" is either IDbCommand.set_CommandText(string)
+    // or ICommandBuilder.AppendWithParameters(string, ...).
+    public static bool IsSqlSinkCall(MethodReference mr)
+        => IsCommandTextSetterCall(mr) || IsCommandBuilderAppendCall(mr);
+
+    private static bool IsCommandTextSetterCall(MethodReference mr)
+    {
+        if (mr.Name != "set_CommandText") return false;
+        if (mr.Parameters.Count != 1) return false;
+        if (mr.Parameters[0].ParameterType.FullName != "System.String") return false;
+
+        var declaring = mr.DeclaringType;
+        var resolved = declaring.Resolve();
+        return resolved is not null
+            ? ImplementsIDbCommand(resolved)
+            : MatchesDbProviderHeuristic(declaring);
+    }
+
+    private static bool IsCommandBuilderAppendCall(MethodReference mr)
+    {
+        if (mr.Name != "AppendWithParameters") return false;
+        if (mr.Parameters.Count < 1) return false;
+        if (mr.Parameters[0].ParameterType.FullName != "System.String") return false;
+
+        var declaring = mr.DeclaringType;
+        TypeDefinition? resolved;
+        try { resolved = declaring.Resolve(); }
+        catch (AssemblyResolutionException) { resolved = null; }
+        return resolved is not null
+            ? ImplementsCommandBuilder(resolved)
+            : MatchesCommandBuilderHeuristic(declaring);
+    }
+
     // SQL injection sink: tainted string assigned to IDbCommand.CommandText.
     // Matches `callvirt System.Data.IDbCommand::set_CommandText(string)` OR a setter
-    // on a class that implements IDbCommand. Resolve-failure fallback (Task 8) accepts
+    // on a class that implements IDbCommand. Resolve-failure fallback accepts
     // declaring types under known DB-provider namespaces whose names end in `Command`.
     public static SinkMatch? MatchCommandTextSetter(Instruction instruction, SymbolicStack stack)
     {
         if (instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) return null;
         if (instruction.Operand is not MethodReference mr) return null;
-        if (mr.Name != "set_CommandText") return null;
-        if (mr.Parameters.Count != 1) return null;
-        if (mr.Parameters[0].ParameterType.FullName != "System.String") return null;
-
-        var declaring = mr.DeclaringType;
-        var resolved = declaring.Resolve();
-        if (resolved is not null)
-        {
-            if (!ImplementsIDbCommand(resolved)) return null;
-        }
-        else
-        {
-            if (!MatchesDbProviderHeuristic(declaring)) return null;
-        }
+        if (!IsCommandTextSetterCall(mr)) return null;
 
         if (stack.Depth < 2) return null;    // receiver + value
         var valueSlot = stack.Peek(0);
@@ -398,22 +420,7 @@ public static class SinkShapes
     {
         if (instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) return null;
         if (instruction.Operand is not MethodReference mr) return null;
-        if (mr.Name != "AppendWithParameters") return null;
-        if (mr.Parameters.Count < 1) return null;
-        if (mr.Parameters[0].ParameterType.FullName != "System.String") return null;
-
-        var declaring = mr.DeclaringType;
-        TypeDefinition? resolved;
-        try { resolved = declaring.Resolve(); }
-        catch (AssemblyResolutionException) { resolved = null; }
-        if (resolved is not null)
-        {
-            if (!ImplementsCommandBuilder(resolved)) return null;
-        }
-        else
-        {
-            if (!MatchesCommandBuilderHeuristic(declaring)) return null;
-        }
+        if (!IsCommandBuilderAppendCall(mr)) return null;
 
         // Stack layout: [receiver, arg0, arg1, …, argN-1] with argN-1 at Peek(0).
         // The SQL string (arg0) is at Peek(paramCount - 1).
