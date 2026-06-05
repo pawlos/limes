@@ -179,4 +179,37 @@ public class ProgramScanFlagTests
         rc.ShouldBe(0);
         stderr.ToString().ShouldNotContain("[scan]");
     }
+
+    [Fact]
+    public void ScanProfile_RequiresScan()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var rc = Program.Run(
+            new[] { FixturePath, "--rules", "x.yaml", "--scan-profile", "sqli" }, stdout, stderr);
+        rc.ShouldBe(2);
+        stderr.ToString().ShouldContain("--scan-profile");
+    }
+
+    [Fact]
+    public void ScanProfile_UnknownValue_Rejected()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var rc = Program.Run(
+            new[] { FixturePath, "--scan", "--scan-profile", "bogus" }, stdout, stderr);
+        rc.ShouldBe(2);
+        stderr.ToString().ShouldContain("unknown scan profile");
+    }
+
+    [Fact]
+    public void ScanProfile_Sqli_RunsClean()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var rc = Program.Run(
+            new[] { FixturePath, "--scan", "--scan-profile", "sqli" }, stdout, stderr);
+        rc.ShouldBe(0, $"stderr: {stderr}");
+        stdout.ToString().ShouldContain("vuln_id");
+    }
 }

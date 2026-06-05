@@ -24,6 +24,8 @@ public static class Program
         bool includeThisField = false;
         bool includeVirtualOverrides = false;
         string? enumeratorConfigPath = null;
+        ScanProfile scanProfile = ScanProfile.Dos;
+        bool scanProfileProvided = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -62,6 +64,19 @@ public static class Program
             {
                 if (++i >= args.Length) { stderr.WriteLine("error: --enumerator-config requires a path"); return 2; }
                 enumeratorConfigPath = args[i];
+            }
+            else if (a == "--scan-profile")
+            {
+                if (++i >= args.Length) { stderr.WriteLine("error: --scan-profile requires a value (dos|sqli)"); return 2; }
+                scanProfileProvided = true;
+                switch (args[i])
+                {
+                    case "dos": scanProfile = ScanProfile.Dos; break;
+                    case "sqli": scanProfile = ScanProfile.Sqli; break;
+                    default:
+                        stderr.WriteLine($"error: unknown scan profile '{args[i]}' (expected dos|sqli)");
+                        return 2;
+                }
             }
             else if (a == "--emit-rules")
             {
@@ -112,6 +127,11 @@ public static class Program
         if (!scan && emitRulesPath is not null)
         {
             stderr.WriteLine("error: --emit-rules requires --scan");
+            return 2;
+        }
+        if (!scan && scanProfileProvided)
+        {
+            stderr.WriteLine("error: --scan-profile requires --scan");
             return 2;
         }
         if (emitRulesPath is not null && outputPath is not null)
@@ -188,7 +208,11 @@ public static class Program
                     };
                 }
 
-                var sources = EntryPointEnumerator.Enumerate(context, cfg, graph).ToList();
+                SqlSinkReachability? sinkReachability =
+                    scanProfile == ScanProfile.Sqli ? new SqlSinkReachability(context.Assembly) : null;
+                var sources = EntryPointEnumerator
+                    .Enumerate(context, cfg, graph, scanProfile, sinkReachability)
+                    .ToList();
                 var enumElapsed = sw.ElapsedMilliseconds;
                 sourcesCount = sources.Count;
 
@@ -278,7 +302,13 @@ public static class Program
                     TaintedValueOut = source.Parameters.FirstOrDefault()?.Name ?? "arg0",
                     ResolvedVia = resolution.RedirectedFromAsync ? "async_state_machine" : null,
                 });
-                allHops.AddRange(summary.Hops);
+                // SQLi scans report only SQL sinks; drop any incidental non-SQL sink hops
+                // so a string-source scan never surfaces an allocation finding. The dos
+                // profile (default, including all --rules runs) is unaffected.
+                var summaryHops = scanProfile == ScanProfile.Sqli
+                    ? summary.Hops.Where(h => h.Role != HopRole.Sink || h.SinkKind == SinkKind.SqlInjection)
+                    : summary.Hops;
+                allHops.AddRange(summaryHops);
             }
 
             if (progress && scan)
@@ -337,6 +367,6 @@ public static class Program
 
     private static void PrintUsage(TextWriter stderr)
     {
-        stderr.WriteLine("usage: TaintAnalyzer <target.dll> [--rules <rules.yaml> | --scan] [--output <trace.yaml>] [--no-symbols]");
+        stderr.WriteLine("usage: TaintAnalyzer <target.dll> [--rules <rules.yaml> | --scan [--scan-profile dos|sqli]] [--output <trace.yaml>] [--no-symbols]");
     }
 }
