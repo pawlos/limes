@@ -9,8 +9,20 @@ public static class EntryPointEnumerator
         AssemblyContext context,
         EnumeratorConfig config,
         ReverseCallGraph callGraph)
+        => Enumerate(context, config, callGraph, ScanProfile.Dos, null);
+
+    public static IEnumerable<SourceMethodEntry> Enumerate(
+        AssemblyContext context,
+        EnumeratorConfig config,
+        ReverseCallGraph callGraph,
+        ScanProfile profile,
+        SqlSinkReachability? sinkReachability)
     {
-        var byteSourceSet = new HashSet<string>(config.ByteSourceTypes, StringComparer.Ordinal);
+        var sourceTypes = profile == ScanProfile.Sqli ? config.StringSourceTypes : config.ByteSourceTypes;
+        var sourceSet = new HashSet<string>(sourceTypes, StringComparer.Ordinal);
+        // The SQLi profile always uses the this-field path (its sink-reachability gate, not a
+        // user flag, scopes candidates). The byte path keeps its opt-in flag.
+        bool includeThisField = profile == ScanProfile.Sqli || config.IncludeThisField;
         // Cache type-name match per declaring type (computed once per type, queried per method).
         var thisFieldCache = new Dictionary<TypeDefinition, IReadOnlyList<string>?>();
 
@@ -24,19 +36,35 @@ public static class EntryPointEnumerator
                 if (VisibilityReject(method, callGraph)) continue;
                 if (ExclusionReject(method, config)) continue;
 
-                if (MatchesParameterShape(method, byteSourceSet))
+                // SQLi profile: a candidate must be able to reach a SQL sink.
+                if (profile == ScanProfile.Sqli
+                    && sinkReachability is not null
+                    && !sinkReachability.ReachesSqlSink(method))
+                {
+                    continue;
+                }
+
+                if (MatchesParameterShape(method, sourceSet))
                 {
                     yield return new SourceMethodEntry { Signature = BuildShortSignature(method) };
                     continue;
                 }
 
-                if (config.IncludeThisField && !method.IsStatic)
+                if (includeThisField && !method.IsStatic)
                 {
-                    if (!thisFieldCache.TryGetValue(type, out var seedFields))
+                    IReadOnlyList<string>? seedFields;
+                    if (profile == ScanProfile.Sqli)
                     {
-                        seedFields = MatchThisFieldShape(type, config, byteSourceSet);
+                        // No decoder-name gate for SQLi: any string field of a sink-reaching
+                        // type is a candidate seed (sink-reachability already scoped us).
+                        seedFields = StringSeedFields(type, sourceSet);
+                    }
+                    else if (!thisFieldCache.TryGetValue(type, out seedFields))
+                    {
+                        seedFields = MatchThisFieldShape(type, config, sourceSet);
                         thisFieldCache[type] = seedFields;
                     }
+
                     if (seedFields is not null)
                     {
                         yield return new SourceMethodEntry
@@ -56,6 +84,19 @@ public static class EntryPointEnumerator
                 }
             }
         }
+    }
+
+    // SQLi this-field seeding: every field of `type` whose type is in the source set
+    // (i.e. System.String). No type-name gate — sink-reachability already constrained
+    // which methods we reach here. Reuses FieldTypeMatchesByteSource as a set-membership
+    // check (the set holds string types under the sqli profile).
+    private static IReadOnlyList<string>? StringSeedFields(TypeDefinition type, HashSet<string> sourceTypes)
+    {
+        var fields = type.Fields
+            .Where(f => FieldTypeMatchesByteSource(f, sourceTypes))
+            .Select(f => f.Name)
+            .ToList();
+        return fields.Count > 0 ? fields : null;
     }
 
     private static bool IsOverrideOfReachableAbstract(
