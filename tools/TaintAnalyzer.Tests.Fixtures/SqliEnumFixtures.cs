@@ -25,3 +25,15 @@ public class StringNoSink
 {
     public void Log(string msg) { _ = msg.Trim(); }
 }
+
+// INTERNAL type with a public sink-reaching method (mirrors Marten's internal
+// FullTextWhereFragment whose public Apply is dispatched via a cross-assembly
+// interface). Not reachable-from-public within this assembly, so it is surfaced
+// only by the sqli profile's visibility relaxation.
+internal class InternalFragment
+{
+    private readonly string _cfg;
+    private readonly IFakeCommandBuilder _b;
+    public InternalFragment(string cfg, IFakeCommandBuilder b) { _cfg = cfg; _b = b; }
+    public void Apply() { _b.AppendWithParameters(_cfg); }
+}

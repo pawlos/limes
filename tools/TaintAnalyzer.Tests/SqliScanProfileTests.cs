@@ -48,6 +48,18 @@ public class SqliScanProfileTests
     }
 
     [Fact]
+    public void Sqli_SurfacesPublicMethodOnInternalType_ReachingSink()
+    {
+        // The sqli visibility relaxation: a public sink-reaching method on an internal
+        // type (not reachable-from-public here) is still enumerated, with its string seed.
+        var apply = SqliEnumerate()
+            .FirstOrDefault(e => e.Signature.Contains("InternalFragment::Apply("));
+        apply.ShouldNotBeNull();
+        apply!.SeedThisFields.ShouldNotBeNull();
+        apply.SeedThisFields!.ShouldContain("_cfg");
+    }
+
+    [Fact]
     public void DosProfile_DoesNotEnumerateStringSources()
     {
         using var ctx = AssemblyContext.Load(FixturePath);

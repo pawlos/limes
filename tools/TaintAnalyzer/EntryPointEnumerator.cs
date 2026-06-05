@@ -33,7 +33,7 @@ public static class EntryPointEnumerator
             foreach (var method in type.Methods)
             {
                 if (HardReject(method)) continue;
-                if (VisibilityReject(method, callGraph)) continue;
+                if (VisibilityReject(method, callGraph, profile)) continue;
                 if (ExclusionReject(method, config)) continue;
 
                 // SQLi profile: a candidate must be able to reach a SQL sink.
@@ -182,10 +182,17 @@ public static class EntryPointEnumerator
     private static string BuildShortSignature(MethodDefinition m)
         => AssemblyContext.BuildShortSignature(m);
 
-    private static bool VisibilityReject(MethodDefinition m, ReverseCallGraph callGraph)
+    private static bool VisibilityReject(MethodDefinition m, ReverseCallGraph callGraph, ScanProfile profile)
     {
         // Public method on a public type → always accept.
         if (m.IsPublic && m.DeclaringType.IsPublic) return false;
+
+        // SQLi profile: a `public` method is part of the callable surface even when its
+        // declaring type is internal — Marten's FullTextWhereFragment is an internal
+        // ISqlFragment whose public Apply() is invoked through a cross-assembly interface
+        // the call graph can't resolve when scanning the target alone. The sink-reachability
+        // gate (not reachable-from-public) is the real filter under this profile.
+        if (profile == ScanProfile.Sqli && m.IsPublic) return false;
 
         // Private: only callable from inside its declaring type, which has its own
         // public entry points. Reject without consulting the graph.
