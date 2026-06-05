@@ -180,6 +180,27 @@ two locked assertions:
 - Full unit suite (currently 362: 299 TaintAnalyzer.Tests + 63 ValidateFixture.Tests).
   Run with `-- xunit.parallelizeTestCollections=false` per the known parallel-flakiness note.
 
+## Implementation note: sqli visibility relaxation (added during execution)
+
+Discovered while bringing up the Marten anchor: `FullTextWhereFragment` is an **internal**
+class implementing the **cross-assembly** `Weasel.Postgresql.SqlGeneration.ISqlFragment`,
+and its `public Apply(ICommandBuilder)` is invoked only through that interface. When scanning
+Marten alone (Weasel unresolved), the call graph cannot expand the `callvirt ISqlFragment::Apply`
+to `FullTextWhereFragment::Apply`, so `reachable-from-public` rejected it and it was never
+enumerated. Resolution: under the **sqli profile only**, `EntryPointEnumerator.VisibilityReject`
+accepts any `public` method regardless of its declaring type's visibility — the
+sink-reachability gate is the real filter under this profile. Private methods are still
+rejected; other accessibility levels still consult the reachability graph. The `dos` profile
+is unchanged (verified by the `scan-protobuf-net` / `scan-nbmp` locks).
+
+**Triage note on additional findings:** the cold sqli scan also surfaces benign-by-design
+sink sites (e.g. `ExecuteSqlStorageOperation.ConfigureCommand` — developer-supplied raw SQL,
+parameterized; `EstablishTombstoneStream.ConfigureCommand` — a constant SQL template). These
+are not vulnerabilities: the taint **source** is "any string," an over-approximation that
+cannot distinguish attacker-controlled from developer/constant SQL. A follow-up milestone
+could discriminate **string-interpolated-into-SQL-text** (the real injection shape, as in
+`FullTextWhereFragment`) from **passed-as-parameter-value** to cut these false positives.
+
 ## Out of scope (deferred)
 
 - LINQ expression-tree / `IQueryProvider` visitor analysis to source the public
