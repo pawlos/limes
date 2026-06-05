@@ -7,6 +7,7 @@ namespace TaintAnalyzer;
 public sealed class EnumeratorConfig
 {
     public IReadOnlyList<string> ByteSourceTypes { get; init; } = s_defaultByteSourceTypes;
+    public IReadOnlyList<string> StringSourceTypes { get; init; } = s_defaultStringSourceTypes;
     public IReadOnlyList<string> DecoderTypeNamePatterns { get; init; } = s_defaultDecoderTypeNamePatterns;
     public IReadOnlyList<string> ExcludeNamespaces { get; init; } = s_defaultExcludeNamespaces;
     public IReadOnlyList<string> ExcludeTypePatterns { get; init; } = s_defaultExcludeTypePatterns;
@@ -24,6 +25,10 @@ public sealed class EnumeratorConfig
         "System.Memory`1<System.Byte>",
         "System.ReadOnlyMemory`1<System.Byte>",
     };
+
+    // SQLi scan profile sources: attacker-controllable text. Kept minimal (just String)
+    // so the sink-reachability gate, not type breadth, controls candidate volume.
+    private static readonly string[] s_defaultStringSourceTypes = { "System.String" };
 
     private static readonly string[] s_defaultDecoderTypeNamePatterns =
         { "*Reader", "*Decoder", "*Deserializer", "*Parser" };
