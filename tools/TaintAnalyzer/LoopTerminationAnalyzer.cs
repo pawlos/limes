@@ -102,7 +102,79 @@ public static class LoopTerminationAnalyzer
         return false;
     }
 
-    // Implemented in Task 3.
+    // Best-effort: the synchronous read result is stored to a local immediately after the
+    // call; completion is present iff that local is later loaded within the span as the
+    // operand of a comparison or conditional branch (i.e. a check against the byte count).
+    // Documented limitation: async Stream/Socket reads (await pattern) are not tracked and
+    // may over-flag.
     private static bool StreamCompletionPresent(IList<Instruction> instrs, (int Start, int End) r, Instruction readCall)
-        => false;
+    {
+        if (!TryGetStlocIndex(readCall.Next, out int local)) return false;
+
+        foreach (var ins in instrs)
+        {
+            if (ins.Offset < r.Start || ins.Offset > r.End) continue;
+            if (!TryGetLdlocIndex(ins, out int li) || li != local) continue;
+
+            var next = SkipNop(ins.Next);
+            if (next is null) continue;
+            if (IsComparisonOrCondBranch(next)) return true;
+            if (IsZeroConst(next))
+            {
+                var after = SkipNop(next.Next);
+                if (after is not null && IsComparisonOrCondBranch(after)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static Instruction? SkipNop(Instruction? i)
+    {
+        while (i is not null && i.OpCode.Code == Code.Nop) i = i.Next;
+        return i;
+    }
+
+    private static bool IsZeroConst(Instruction i)
+        => i.OpCode.Code == Code.Ldc_I4_0
+           || (i.OpCode.Code == Code.Ldc_I4 && i.Operand is int v && v == 0)
+           || (i.OpCode.Code == Code.Ldc_I4_S && i.Operand is sbyte sb && sb == 0);
+
+    private static bool IsComparisonOrCondBranch(Instruction i)
+        => i.OpCode.Code is Code.Ceq or Code.Cgt or Code.Cgt_Un or Code.Clt or Code.Clt_Un
+           || i.OpCode.FlowControl == FlowControl.Cond_Branch;
+
+    private static bool TryGetStlocIndex(Instruction? i, out int index)
+    {
+        index = -1;
+        if (i is null) return false;
+        switch (i.OpCode.Code)
+        {
+            case Code.Stloc_0: index = 0; return true;
+            case Code.Stloc_1: index = 1; return true;
+            case Code.Stloc_2: index = 2; return true;
+            case Code.Stloc_3: index = 3; return true;
+            case Code.Stloc:
+            case Code.Stloc_S:
+                if (i.Operand is VariableDefinition v) { index = v.Index; return true; }
+                return false;
+            default: return false;
+        }
+    }
+
+    private static bool TryGetLdlocIndex(Instruction i, out int index)
+    {
+        index = -1;
+        switch (i.OpCode.Code)
+        {
+            case Code.Ldloc_0: index = 0; return true;
+            case Code.Ldloc_1: index = 1; return true;
+            case Code.Ldloc_2: index = 2; return true;
+            case Code.Ldloc_3: index = 3; return true;
+            case Code.Ldloc:
+            case Code.Ldloc_S:
+                if (i.Operand is VariableDefinition v) { index = v.Index; return true; }
+                return false;
+            default: return false;
+        }
+    }
 }

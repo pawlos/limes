@@ -38,4 +38,24 @@ public class LoopTerminationAnalyzerTests
     [Fact]
     public void ClearsLoopWithNoRead()
         => Analyze("PlainLoops", "LoopNoRead").ShouldBeEmpty();
+
+    [Fact]
+    public void FlagsStreamReadLoopWithoutZeroCheck()
+    {
+        var f = Analyze("StreamLoops", "StreamNoCheck");
+        f.Count.ShouldBe(1);
+        f[0].ReadApi.ShouldBe("stream_read");
+    }
+
+    [Fact]
+    public void ClearsStreamReadLoopWithZeroCheck()
+        => Analyze("StreamLoops", "StreamWithCheck").ShouldBeEmpty();
+
+    [Fact]
+    public void FlagsSocketReceiveLoopWithoutZeroCheck()
+    {
+        var f = Analyze("StreamLoops", "SocketNoCheck");
+        f.Count.ShouldBe(1);
+        f[0].ReadApi.ShouldBe("socket_receive");
+    }
 }
