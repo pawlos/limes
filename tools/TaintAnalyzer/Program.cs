@@ -73,8 +73,9 @@ public static class Program
                 {
                     case "dos": scanProfile = ScanProfile.Dos; break;
                     case "sqli": scanProfile = ScanProfile.Sqli; break;
+                    case "loop": scanProfile = ScanProfile.Loop; break;
                     default:
-                        stderr.WriteLine($"error: unknown scan profile '{args[i]}' (expected dos|sqli)");
+                        stderr.WriteLine($"error: unknown scan profile '{args[i]}' (expected dos|sqli|loop)");
                         return 2;
                 }
             }
@@ -166,6 +167,49 @@ public static class Program
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             int sourcesCount = 0;
+
+            if (scan && scanProfile == ScanProfile.Loop)
+            {
+                if (emitRulesPath is not null)
+                {
+                    stderr.WriteLine("error: --emit-rules is not supported with --scan-profile loop");
+                    return 2;
+                }
+
+                EnumeratorConfig loopCfg;
+                if (enumeratorConfigPath is not null)
+                {
+                    if (!File.Exists(enumeratorConfigPath))
+                    {
+                        stderr.WriteLine($"error: enumerator-config file not found: {enumeratorConfigPath}");
+                        return 1;
+                    }
+                    try { loopCfg = EnumeratorConfig.Load(File.ReadAllText(enumeratorConfigPath)); }
+                    catch (EnumeratorConfigException ex)
+                    {
+                        stderr.WriteLine($"error: enumerator-config: {ex.Message}");
+                        return 1;
+                    }
+                }
+                else
+                {
+                    loopCfg = EnumeratorConfig.Default;
+                }
+
+                var loopGraph = new ReverseCallGraph(context.Assembly);
+                var loopFindings = new List<LoopFinding>();
+                foreach (var m in EntryPointEnumerator.EnumerateLoopCandidates(context, loopCfg, loopGraph))
+                    loopFindings.AddRange(LoopTerminationAnalyzer.Analyze(context, m));
+
+                if (progress)
+                    stderr.WriteLine($"[scan] loop profile: {loopFindings.Count} findings ({sw.ElapsedMilliseconds}ms)");
+
+                var loopYaml = LoopFindingEmitter.Emit(
+                    "scan-" + Path.GetFileNameWithoutExtension(target), loopFindings);
+                if (outputPath is null) stdout.Write(loopYaml);
+                else File.WriteAllText(outputPath, loopYaml);
+                return 0;
+            }
 
             RulesDocument rules;
             if (scan)
@@ -367,6 +411,6 @@ public static class Program
 
     private static void PrintUsage(TextWriter stderr)
     {
-        stderr.WriteLine("usage: TaintAnalyzer <target.dll> [--rules <rules.yaml> | --scan [--scan-profile dos|sqli]] [--output <trace.yaml>] [--no-symbols]");
+        stderr.WriteLine("usage: TaintAnalyzer <target.dll> [--rules <rules.yaml> | --scan [--scan-profile dos|sqli|loop]] [--output <trace.yaml>] [--no-symbols]");
     }
 }
