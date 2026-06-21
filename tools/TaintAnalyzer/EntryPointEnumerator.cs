@@ -86,6 +86,27 @@ public static class EntryPointEnumerator
         }
     }
 
+    // Loop profile: no taint-source shape. Every non-compiler-generated method passing the
+    // hard/visibility/exclusion rejects is a candidate; LoopTerminationAnalyzer decides if a
+    // read loop exists. Visibility uses the Loop relaxation (public-on-internal accepted).
+    public static IEnumerable<MethodDefinition> EnumerateLoopCandidates(
+        AssemblyContext context,
+        EnumeratorConfig config,
+        ReverseCallGraph callGraph)
+    {
+        foreach (var type in AllTypes(context.Assembly))
+        {
+            if (IsCompilerGeneratedType(type)) continue;
+            foreach (var method in type.Methods)
+            {
+                if (HardReject(method)) continue;
+                if (VisibilityReject(method, callGraph, ScanProfile.Loop)) continue;
+                if (ExclusionReject(method, config)) continue;
+                yield return method;
+            }
+        }
+    }
+
     // SQLi this-field seeding: every field of `type` whose type is in the source set
     // (i.e. System.String). No type-name gate — sink-reachability already constrained
     // which methods we reach here. Reuses FieldTypeMatchesByteSource as a set-membership
@@ -187,12 +208,13 @@ public static class EntryPointEnumerator
         // Public method on a public type → always accept.
         if (m.IsPublic && m.DeclaringType.IsPublic) return false;
 
-        // SQLi profile: a `public` method is part of the callable surface even when its
-        // declaring type is internal — Marten's FullTextWhereFragment is an internal
-        // ISqlFragment whose public Apply() is invoked through a cross-assembly interface
-        // the call graph can't resolve when scanning the target alone. The sink-reachability
-        // gate (not reachable-from-public) is the real filter under this profile.
-        if (profile == ScanProfile.Sqli && m.IsPublic) return false;
+        // SQLi and Loop profiles: a `public` method is part of the callable surface even when
+        // its declaring type is internal. Marten's FullTextWhereFragment is an internal
+        // ISqlFragment whose public Apply() is invoked through a cross-assembly interface; CoreWCF's
+        // internal framing middleware exposes a public OnConnectedAsync invoked through a delegate —
+        // both invocations the call graph can't resolve when scanning the target alone. For SQLi the
+        // sink-reachability gate is the real filter; for Loop the read-loop shape is.
+        if ((profile == ScanProfile.Sqli || profile == ScanProfile.Loop) && m.IsPublic) return false;
 
         // Private: only callable from inside its declaring type, which has its own
         // public entry points. Reject without consulting the graph.

@@ -91,3 +91,19 @@ public class StreamLoops
         return total;
     }
 }
+
+// internal type, public read-loop method invoked via a delegate the call graph can't
+// resolve — must still be enumerated under the Loop visibility relaxation.
+internal class InternalMiddleware
+{
+    public async Task OnConnectedAsync(PipeReader reader)
+    {
+        int total = 0;
+        while (total < 100)
+        {
+            ReadResult result = await reader.ReadAsync();
+            total += (int)result.Buffer.Length;
+            reader.AdvanceTo(result.Buffer.End);
+        }
+    }
+}
