@@ -1,0 +1,11 @@
+CoreWCF.NetFramingBase 1.9.1 — PATCHED (GHSA-p86g-xrr2-pf7c / CVE-2026-54772, CWE-835).
+The framing-handshake loop now throws on `readResult.IsCompleted && buffer.IsEmpty`, so
+the loop detector reports no findings (findings: []).
+
+Reproduce the DLL (artifacts/ is gitignored):
+  ./scripts/materialize-corewcf-netframing.sh
+
+Regenerate findings.yaml:
+  dotnet run --project tools/TaintAnalyzer -- \
+    artifacts/corewcf-netframing-1.9.1/CoreWCF.NetFramingBase.dll \
+    --scan --scan-profile loop --no-symbols

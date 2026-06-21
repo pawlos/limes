@@ -1,0 +1,24 @@
+vuln_id: scan-CoreWCF.NetFramingBase
+findings:
+  - cwe: 835
+    method: CoreWCF.Channels.Framing.DuplexFramingMiddleware.OnConnectedAsync
+    resolved_via: async_state_machine
+    loop:
+      file: ""
+      line: 0
+    read:
+      api: pipe_reader_read_async
+      file: ""
+      line: 0
+    completion_signal: absent
+  - cwe: 835
+    method: CoreWCF.Channels.Framing.SingletonFramingMiddleware.OnConnectedAsync
+    resolved_via: async_state_machine
+    loop:
+      file: ""
+      line: 0
+    read:
+      api: pipe_reader_read_async
+      file: ""
+      line: 0
+    completion_signal: absent

@@ -1,0 +1,13 @@
+CoreWCF.NetFramingBase 1.9.0 — VULNERABLE (GHSA-p86g-xrr2-pf7c / CVE-2026-54772, CWE-835).
+Framing-handshake middleware reads a PipeReader in a loop without inspecting
+ReadResult.IsCompleted; a peer that half-closes pins a worker at 100% CPU.
+
+Reproduce the DLL (artifacts/ is gitignored):
+  ./scripts/materialize-corewcf-netframing.sh
+
+Regenerate findings.yaml:
+  dotnet run --project tools/TaintAnalyzer -- \
+    artifacts/corewcf-netframing-1.9.0/CoreWCF.NetFramingBase.dll \
+    --scan --scan-profile loop --no-symbols
+
+(--no-symbols: the NuGet DLL ships no PDB, so locations are method-level.)

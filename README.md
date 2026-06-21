@@ -6,13 +6,16 @@ attacker-controllable values from *source* methods through the call graph, and r
 when they reach a dangerous *sink*. It emits a machine-readable YAML trace of the full
 source → propagator → sink path.
 
-It targets two vulnerability classes:
+It targets three vulnerability classes:
 
 - **CWE-770 — unbounded resource allocation / HTTP DoS.** A length or count read from
   an untrusted stream flows into an allocation (`new T[n]`, `ArrayPool.Rent`, `stackalloc`,
   `Span` slice/index, HTTP body read) without a bound check.
 - **CWE-89 — SQL injection.** A string value reaches a SQL command sink
   (`DbCommand.CommandText`, command-builder append) without passing a recognized sanitizer.
+- **CWE-835 — infinite loop.** A loop reads from a `PipeReader`/`Stream`/`Socket` but never
+  inspects the completion signal (`ReadResult.IsCompleted`, a zero byte-count), so a peer
+  that stops sending can spin it forever. Structural — not a taint flow.
 
 ## Why it exists
 
@@ -26,6 +29,7 @@ Limes was built to find — and reproduce — real DoS and injection bugs in wid
 | **protobuf-net** | string/bytes field OOM (≤ 3.2.56) | CWE-789 |
 | **Marten** | `FullTextWhereFragment` SQL injection (GHSA-vmw2-qwm8-x84c) | CWE-89 |
 | **NBMP** | parameter-shape DoS | CWE-770 |
+| **CoreWCF** | framing-handshake infinite loop (GHSA-p86g-xrr2-pf7c) | CWE-835 |
 
 Each is captured as a locked fixture (see [`fixtures/`](fixtures/)) with `prefix`
 (vulnerable) and `postfix` (patched) variants, so the analyzer is regression-tested
@@ -47,6 +51,12 @@ against both the bug and its fix.
 Supported sink kinds: `Allocation` (`new_array`, `array_pool_rent`, `stackalloc`),
 `SpanAccess` (`span_slice`, `span_index`), HTTP body reads, and `SqlInjection`
 (`sql_command_text`, `sql_command_builder_append`).
+
+The CWE-835 loop detector (`--scan-profile loop`) is a separate structural pass
+(`LoopTerminationAnalyzer`) — it does not use the taint walker. It resolves a method's
+async state machine, detects loop back-edges in the IL, and flags a read call inside a loop
+whose completion signal is never consumed within that loop. It reports the dangerous *idiom*,
+not provable non-termination.
 
 ## Requirements
 
@@ -91,6 +101,9 @@ dotnet run --project tools/TaintAnalyzer -- <target.dll> --scan --progress
 # SQL-injection scan: string sources gated on transitive reach to a SQL sink
 dotnet run --project tools/TaintAnalyzer -- <target.dll> --scan --scan-profile sqli
 
+# Loop-termination scan (CWE-835): read loops with no completion check
+dotnet run --project tools/TaintAnalyzer -- <target.dll> --scan --scan-profile loop
+
 # Emit the enumerated entry points as a rules.yaml (terminal — no analysis)
 dotnet run --project tools/TaintAnalyzer -- <target.dll> --scan --emit-rules discovered-rules.yaml
 ```
@@ -101,7 +114,7 @@ dotnet run --project tools/TaintAnalyzer -- <target.dll> --scan --emit-rules dis
 |---|---|
 | `--rules <path>` | Analyze the source methods listed in a rules YAML (mutually exclusive with `--scan`). |
 | `--scan` | Auto-enumerate source methods from the assembly. |
-| `--scan-profile dos\|sqli` | Selects what `--scan` enumerates and reports (default `dos`). Requires `--scan`. |
+| `--scan-profile dos\|sqli\|loop` | Selects what `--scan` enumerates and reports (default `dos`). `loop` finds read loops with no completion check (CWE-835). Requires `--scan`. |
 | `--output <path>` | Write the trace YAML to a file instead of stdout. |
 | `--emit-rules <path>` | (scan only) Write enumerated entry points as a rules YAML and exit. |
 | `--enumerator-config <path>` | (scan only) Override the entry-point enumeration config. |
