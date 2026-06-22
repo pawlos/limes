@@ -1,0 +1,18 @@
+NAudio.Extras.LoopStream — VULNERABLE (naudio/NAudio#1338, CWE-835).
+LoopStream.Read reads the wrapped source stream in a `while (read < count)` loop. The
+read result is inspected (`if (readThisTime < required)`) but never compared against zero
+to break, so an empty source stream (Read always returns 0) makes `read` never advance —
+the loop spins at 100% CPU. Found and reported by the repo author; fixed by #1339.
+
+The source (fixtures/naudio-loopstream-1338-prefix/source/) is a faithful reconstruction:
+WaveStream is abstract and does not re-declare Read, so `sourceStream.Read(...)` binds to
+System.IO.Stream::Read in IL — exactly as in the real library — which the loop detector's
+read recognizer matches.
+
+Build the DLL (artifacts/ is gitignored):
+  ./scripts/build-naudio-loopstream.sh
+
+Regenerate findings.yaml:
+  dotnet run --project tools/TaintAnalyzer -- \
+    artifacts/naudio-loopstream-1338-prefix/NAudio.Extras.dll \
+    --scan --scan-profile loop

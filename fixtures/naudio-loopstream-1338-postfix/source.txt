@@ -1,0 +1,13 @@
+NAudio.Extras.LoopStream — PATCHED (naudio/NAudio#1339 fixes #1338, CWE-835).
+LoopStream.Read now breaks on `readThisTime == 0 && sourceStream.Position == 0`: a zero
+read from the start of the source means it is empty, so the loop stops rather than spinning.
+The read result is compared against zero, which the loop detector recognizes as a completion
+check, so it reports no findings (findings: []).
+
+Build the DLL (artifacts/ is gitignored):
+  ./scripts/build-naudio-loopstream.sh
+
+Regenerate findings.yaml:
+  dotnet run --project tools/TaintAnalyzer -- \
+    artifacts/naudio-loopstream-1338-postfix/NAudio.Extras.dll \
+    --scan --scan-profile loop

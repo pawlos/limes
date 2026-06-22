@@ -1,0 +1,12 @@
+vuln_id: scan-NAudio.Extras
+findings:
+  - cwe: 835
+    method: NAudio.Extras.LoopStream.Read
+    loop:
+      file: "LoopStream.cs"
+      line: 64
+    read:
+      api: stream_read
+      file: "LoopStream.cs"
+      line: 66
+    completion_signal: absent

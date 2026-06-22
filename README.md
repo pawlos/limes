@@ -30,6 +30,7 @@ Limes was built to find — and reproduce — real DoS and injection bugs in wid
 | **Marten** | `FullTextWhereFragment` SQL injection (GHSA-vmw2-qwm8-x84c) | CWE-89 |
 | **NBMP** | parameter-shape DoS | CWE-770 |
 | **CoreWCF** | framing-handshake infinite loop (GHSA-p86g-xrr2-pf7c) | CWE-835 |
+| **NAudio** | `LoopStream.Read` empty-source infinite loop (#1338) | CWE-835 |
 
 Each is captured as a locked fixture (see [`fixtures/`](fixtures/)) with `prefix`
 (vulnerable) and `postfix` (patched) variants, so the analyzer is regression-tested
