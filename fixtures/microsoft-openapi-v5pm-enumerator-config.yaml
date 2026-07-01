@@ -1,0 +1,6 @@
+# Enumerator config for the Microsoft.OpenApi recursion fixture (GHSA-v5pm-xwqc-g5wc).
+# The default config excludes Microsoft.* to avoid flagging framework code; here we scan a
+# faithful reproduction that lives in the Microsoft.OpenApi.Models.References namespace, so we
+# keep only System.* excluded.
+exclude_namespaces:
+  - "System.*"

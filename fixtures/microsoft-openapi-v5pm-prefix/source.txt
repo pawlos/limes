@@ -1,0 +1,26 @@
+Microsoft.OpenApi BaseOpenApiReferenceHolder — VULNERABLE
+(GHSA-v5pm-xwqc-g5wc / CVE-2026-49451, CWE-674 Uncontrolled Recursion;
+ affected 2.0.0-preview11–2.7.4 and 3.0.0–3.5.3).
+
+A small OpenAPI document with a circular schema reference (schema A `$ref`s B, B `$ref`s A)
+makes the reference-resolution walker recurse through the reference chain with no cycle
+guard. The recursion never terminates and overflows the stack, terminating the process that
+parses the untrusted document (JSON or YAML, via the public OpenAPI.NET reader APIs).
+
+The source (fixtures/microsoft-openapi-v5pm-prefix/source/) is a minimal faithful
+reconstruction: BaseOpenApiReferenceHolder.RecursiveTarget follows `Reference.RecursiveTarget`
+recursively, exactly as the real property does, so the recursion detector's self-call match
+fires on `get_RecursiveTarget` with no visited-set or depth-limit guard present.
+
+The patched shape (2.7.5 / 3.5.4) threads a visited HashSet through the recursion
+(`if (!visited.Add(this)) throw`) — see the postfix fixture, which the detector clears.
+
+Build the DLLs (artifacts/ is gitignored):
+  ./scripts/build-microsoft-openapi-v5pm.sh
+
+Regenerate findings.yaml (the fixture lives in Microsoft.OpenApi.*, excluded by default, so
+pass the fixture's enumerator config that keeps only System.* excluded):
+  dotnet run --project tools/TaintAnalyzer -- \
+    artifacts/microsoft-openapi-v5pm-prefix/Microsoft.OpenApi.dll \
+    --scan --scan-profile recursion \
+    --enumerator-config fixtures/microsoft-openapi-v5pm-enumerator-config.yaml

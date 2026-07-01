@@ -107,6 +107,41 @@ public static class EntryPointEnumerator
         }
     }
 
+    // Recursion profile: no taint-source shape. Every method passing the hard/visibility/
+    // exclusion rejects is a candidate; RecursionTerminationAnalyzer decides if unguarded
+    // self-recursion exists. Unlike the loop profile, property getters are NOT rejected —
+    // the Microsoft.OpenApi bug (GHSA-v5pm-xwqc-g5wc) lives in a `RecursiveTarget` getter.
+    public static IEnumerable<MethodDefinition> EnumerateRecursionCandidates(
+        AssemblyContext context,
+        EnumeratorConfig config,
+        ReverseCallGraph callGraph)
+    {
+        foreach (var type in AllTypes(context.Assembly))
+        {
+            if (IsCompilerGeneratedType(type)) continue;
+            foreach (var method in type.Methods)
+            {
+                if (RecursionHardReject(method)) continue;
+                if (VisibilityReject(method, callGraph, ScanProfile.Recursion)) continue;
+                if (ExclusionReject(method, config)) continue;
+                yield return method;
+            }
+        }
+    }
+
+    // Like HardReject but keeps property getters/setters and special-name methods, since
+    // recursive reference resolution is commonly written as a property getter.
+    private static bool RecursionHardReject(MethodDefinition m)
+    {
+        if (m.HasCustomAttributes && m.CustomAttributes.Any(a =>
+                a.AttributeType.FullName == typeof(CompilerGeneratedAttribute).FullName))
+            return true;
+        if (m.IsConstructor) return true;
+        if (m.IsAddOn || m.IsRemoveOn || m.IsFire) return true;
+        if (m.Body is null) return true;
+        return false;
+    }
+
     // SQLi this-field seeding: every field of `type` whose type is in the source set
     // (i.e. System.String). No type-name gate — sink-reachability already constrained
     // which methods we reach here. Reuses FieldTypeMatchesByteSource as a set-membership
@@ -214,7 +249,7 @@ public static class EntryPointEnumerator
         // internal framing middleware exposes a public OnConnectedAsync invoked through a delegate —
         // both invocations the call graph can't resolve when scanning the target alone. For SQLi the
         // sink-reachability gate is the real filter; for Loop the read-loop shape is.
-        if ((profile == ScanProfile.Sqli || profile == ScanProfile.Loop) && m.IsPublic) return false;
+        if ((profile == ScanProfile.Sqli || profile == ScanProfile.Loop || profile == ScanProfile.Recursion) && m.IsPublic) return false;
 
         // Private: only callable from inside its declaring type, which has its own
         // public entry points. Reject without consulting the graph.

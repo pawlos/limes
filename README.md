@@ -6,7 +6,7 @@ attacker-controllable values from *source* methods through the call graph, and r
 when they reach a dangerous *sink*. It emits a machine-readable YAML trace of the full
 source → propagator → sink path.
 
-It targets three vulnerability classes:
+It targets four vulnerability classes:
 
 - **CWE-770 — unbounded resource allocation / HTTP DoS.** A length or count read from
   an untrusted stream flows into an allocation (`new T[n]`, `ArrayPool.Rent`, `stackalloc`,
@@ -16,6 +16,9 @@ It targets three vulnerability classes:
 - **CWE-835 — infinite loop.** A loop reads from a `PipeReader`/`Stream`/`Socket` but never
   inspects the completion signal (`ReadResult.IsCompleted`, a zero byte-count), so a peer
   that stops sending can spin it forever. Structural — not a taint flow.
+- **CWE-674 — uncontrolled recursion.** A method calls itself while walking untrusted input
+  (e.g. resolving a `$ref` chain) with no visited-set or depth-limit guard, so a circular
+  input overflows the stack. Structural — not a taint flow.
 
 ## Why it exists
 
@@ -31,6 +34,7 @@ Limes was built to find — and reproduce — real DoS and injection bugs in wid
 | **NBMP** | parameter-shape DoS | CWE-770 |
 | **CoreWCF** | framing-handshake infinite loop (GHSA-p86g-xrr2-pf7c) | CWE-835 |
 | **NAudio** | `LoopStream.Read` empty-source infinite loop (#1338) | CWE-835 |
+| **Microsoft.OpenApi** | circular `$ref` stack overflow (GHSA-v5pm-xwqc-g5wc, ≤ 2.7.4 / ≤ 3.5.3) | CWE-674 |
 
 Each is captured as a locked fixture (see [`fixtures/`](fixtures/)) with `prefix`
 (vulnerable) and `postfix` (patched) variants, so the analyzer is regression-tested
@@ -58,6 +62,20 @@ The CWE-835 loop detector (`--scan-profile loop`) is a separate structural pass
 async state machine, detects loop back-edges in the IL, and flags a read call inside a loop
 whose completion signal is never consumed within that loop. It reports the dangerous *idiom*,
 not provable non-termination.
+
+The CWE-674 recursion detector (`--scan-profile recursion`) is a sibling structural pass
+(`RecursionTerminationAnalyzer`). It flags recursion whose body carries no termination guard —
+neither a visited-set / cycle tracker (`HashSet`/`Dictionary` `Add`/`Contains`) nor a recursion
+depth cap (a counter compared against a constant). Property getters are candidates here (unlike
+the loop profile), because recursive `$ref` resolution is commonly written as one. It detects
+two shapes:
+
+- **direct self-recursion** — a method that calls itself (`recursion: self`);
+- **mutual recursion** — a call-graph cycle of two or more methods, e.g. A → B → A
+  (`recursion: mutual`, with the cycle members listed). This runs an iterative Tarjan
+  strongly-connected-components pass (`MethodCallGraph` + `StronglyConnectedComponents`) over
+  the in-assembly call graph, scoped to the candidate surface; a cycle is cleared when any
+  member carries a guard.
 
 ## Requirements
 
@@ -105,6 +123,9 @@ dotnet run --project tools/TaintAnalyzer -- <target.dll> --scan --scan-profile s
 # Loop-termination scan (CWE-835): read loops with no completion check
 dotnet run --project tools/TaintAnalyzer -- <target.dll> --scan --scan-profile loop
 
+# Recursion scan (CWE-674): self-recursion with no cycle/depth guard
+dotnet run --project tools/TaintAnalyzer -- <target.dll> --scan --scan-profile recursion
+
 # Emit the enumerated entry points as a rules.yaml (terminal — no analysis)
 dotnet run --project tools/TaintAnalyzer -- <target.dll> --scan --emit-rules discovered-rules.yaml
 ```
@@ -115,7 +136,7 @@ dotnet run --project tools/TaintAnalyzer -- <target.dll> --scan --emit-rules dis
 |---|---|
 | `--rules <path>` | Analyze the source methods listed in a rules YAML (mutually exclusive with `--scan`). |
 | `--scan` | Auto-enumerate source methods from the assembly. |
-| `--scan-profile dos\|sqli\|loop` | Selects what `--scan` enumerates and reports (default `dos`). `loop` finds read loops with no completion check (CWE-835). Requires `--scan`. |
+| `--scan-profile dos\|sqli\|loop\|recursion` | Selects what `--scan` enumerates and reports (default `dos`). `loop` finds read loops with no completion check (CWE-835); `recursion` finds self-recursion with no cycle/depth guard (CWE-674). Requires `--scan`. |
 | `--output <path>` | Write the trace YAML to a file instead of stdout. |
 | `--emit-rules <path>` | (scan only) Write enumerated entry points as a rules YAML and exit. |
 | `--enumerator-config <path>` | (scan only) Override the entry-point enumeration config. |
@@ -146,8 +167,10 @@ artifacts/                      Materialized third-party source trees (gitignore
 dotnet test TaintAnalyzer.sln
 ```
 
-The suite includes per-fixture end-to-end runs that assert the emitted trace matches
-the fixture's locked `trace.yaml`, covering both vulnerable and patched variants.
+The suite includes per-fixture end-to-end runs that assert the analyzer's output matches
+each fixture's locked expectation — `trace.yaml` for taint findings, `findings.yaml` for the
+structural loop (CWE-835) and recursion (CWE-674) passes — covering both vulnerable and
+patched variants.
 
 ## License
 

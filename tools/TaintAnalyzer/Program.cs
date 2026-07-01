@@ -1,3 +1,4 @@
+using Mono.Cecil;
 using TaintAnalyzer;
 
 namespace TaintAnalyzer;
@@ -67,15 +68,16 @@ public static class Program
             }
             else if (a == "--scan-profile")
             {
-                if (++i >= args.Length) { stderr.WriteLine("error: --scan-profile requires a value (dos|sqli)"); return 2; }
+                if (++i >= args.Length) { stderr.WriteLine("error: --scan-profile requires a value (dos|sqli|loop|recursion)"); return 2; }
                 scanProfileProvided = true;
                 switch (args[i])
                 {
                     case "dos": scanProfile = ScanProfile.Dos; break;
                     case "sqli": scanProfile = ScanProfile.Sqli; break;
                     case "loop": scanProfile = ScanProfile.Loop; break;
+                    case "recursion": scanProfile = ScanProfile.Recursion; break;
                     default:
-                        stderr.WriteLine($"error: unknown scan profile '{args[i]}' (expected dos|sqli|loop)");
+                        stderr.WriteLine($"error: unknown scan profile '{args[i]}' (expected dos|sqli|loop|recursion)");
                         return 2;
                 }
             }
@@ -208,6 +210,56 @@ public static class Program
                     "scan-" + Path.GetFileNameWithoutExtension(target), loopFindings);
                 if (outputPath is null) stdout.Write(loopYaml);
                 else File.WriteAllText(outputPath, loopYaml);
+                return 0;
+            }
+
+            if (scan && scanProfile == ScanProfile.Recursion)
+            {
+                if (emitRulesPath is not null)
+                {
+                    stderr.WriteLine("error: --emit-rules is not supported with --scan-profile recursion");
+                    return 2;
+                }
+
+                EnumeratorConfig recCfg;
+                if (enumeratorConfigPath is not null)
+                {
+                    if (!File.Exists(enumeratorConfigPath))
+                    {
+                        stderr.WriteLine($"error: enumerator-config file not found: {enumeratorConfigPath}");
+                        return 1;
+                    }
+                    try { recCfg = EnumeratorConfig.Load(File.ReadAllText(enumeratorConfigPath)); }
+                    catch (EnumeratorConfigException ex)
+                    {
+                        stderr.WriteLine($"error: enumerator-config: {ex.Message}");
+                        return 1;
+                    }
+                }
+                else
+                {
+                    recCfg = EnumeratorConfig.Default;
+                }
+
+                var recGraph = new ReverseCallGraph(context.Assembly);
+                var recCandidates = EntryPointEnumerator.EnumerateRecursionCandidates(context, recCfg, recGraph).ToList();
+                var recFindings = new List<RecursionFinding>();
+                foreach (var m in recCandidates)
+                    recFindings.AddRange(RecursionTerminationAnalyzer.Analyze(context, m));
+
+                // Mutual recursion (SCC over the whole in-assembly call graph), scoped to the
+                // candidate surface.
+                var recCandidateSet = new HashSet<MethodDefinition>(recCandidates);
+                var recCallGraph = new MethodCallGraph(context.Assembly);
+                recFindings.AddRange(RecursionTerminationAnalyzer.AnalyzeCycles(context, recCallGraph, recCandidateSet));
+
+                if (progress)
+                    stderr.WriteLine($"[scan] recursion profile: {recFindings.Count} findings ({sw.ElapsedMilliseconds}ms)");
+
+                var recYaml = RecursionFindingEmitter.Emit(
+                    "scan-" + Path.GetFileNameWithoutExtension(target), recFindings);
+                if (outputPath is null) stdout.Write(recYaml);
+                else File.WriteAllText(outputPath, recYaml);
                 return 0;
             }
 
@@ -411,6 +463,6 @@ public static class Program
 
     private static void PrintUsage(TextWriter stderr)
     {
-        stderr.WriteLine("usage: TaintAnalyzer <target.dll> [--rules <rules.yaml> | --scan [--scan-profile dos|sqli|loop]] [--output <trace.yaml>] [--no-symbols]");
+        stderr.WriteLine("usage: TaintAnalyzer <target.dll> [--rules <rules.yaml> | --scan [--scan-profile dos|sqli|loop|recursion]] [--output <trace.yaml>] [--no-symbols]");
     }
 }

@@ -1,0 +1,9 @@
+vuln_id: scan-Microsoft.OpenApi
+findings:
+  - cwe: 674
+    method: Microsoft.OpenApi.Models.References.BaseOpenApiReferenceHolder.get_RecursiveTarget
+    recursion: self
+    call:
+      file: "ReferenceHolder.cs"
+      line: 19
+    guard: absent
