@@ -1,0 +1,33 @@
+vuln_id: sqli-quote-escape-postfix
+source:
+  method: QuoteEscapeSqliPoc.DictionaryKeyFragment.Apply
+  file: QuoteEscapeSqliDemo.cs
+  line: 20
+  role: source
+  tainted_value_in: builder
+  transformation: read_stream
+  tainted_value_out: builder
+  kind: decoder_entry
+path:
+- hop: 0
+  method: QuoteEscapeSqliPoc.DictionaryKeyFragment.Apply
+  file: QuoteEscapeSqliDemo.cs
+  line: 22
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: _key
+- hop: 1
+  method: QuoteEscapeSqliPoc.DictionaryKeyFragment.Apply
+  file: QuoteEscapeSqliDemo.cs
+  line: 22
+  role: sanitizer
+  tainted_value_in: _key
+  transformation: sql_quote_escape
+  tainted_value_out: sql_quote_escaped(_key)
+  dispatch:
+    kind: direct
+    static_type: QuoteEscapeSqliPoc.DictionaryKeyFragment
+    resolved_targets: []
+    closure_boundary: false
+sanitizer_absence: []

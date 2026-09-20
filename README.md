@@ -12,7 +12,9 @@ It targets four vulnerability classes:
   an untrusted stream flows into an allocation (`new T[n]`, `ArrayPool.Rent`, `stackalloc`,
   `Span` slice/index, HTTP body read) without a bound check.
 - **CWE-89 — SQL injection.** A string value reaches a SQL command sink
-  (`DbCommand.CommandText`, command-builder append) without passing a recognized sanitizer.
+  (`DbCommand.CommandText`, a parameterizing command-builder append, or a **raw**
+  `ICommandBuilder.Append(string)` that concatenates SQL text verbatim) without passing a
+  recognized sanitizer.
 - **CWE-835 — infinite loop.** A loop reads from a `PipeReader`/`Stream`/`Socket` but never
   inspects the completion signal (`ReadResult.IsCompleted`, a zero byte-count), so a peer
   that stops sending can spin it forever. Structural — not a taint flow.
@@ -31,6 +33,7 @@ Limes was built to find — and reproduce — real DoS and injection bugs in wid
 | **MPCS** (`Microsoft.Psi`-style) | `DateTime` `stackalloc` over-allocation (3.0.3–3.1.4) | CWE-770 |
 | **protobuf-net** | string/bytes field OOM (≤ 3.2.56) | CWE-789 |
 | **Marten** | `FullTextWhereFragment` SQL injection (GHSA-vmw2-qwm8-x84c) | CWE-89 |
+| **Marten** | `DictionaryContainsKeyFilter` LINQ dictionary-key SQL injection (GHSA-rfx3-98h7-v3xp, CVE-2026-75513, ≤ 9.12.0) | CWE-89 |
 | **NBMP** | parameter-shape DoS | CWE-770 |
 | **CoreWCF** | framing-handshake infinite loop (GHSA-p86g-xrr2-pf7c) | CWE-835 |
 | **NAudio** | `LoopStream.Read` empty-source infinite loop (#1338) | CWE-835 |
@@ -49,13 +52,14 @@ against both the bug and its fix.
    calls through a `CallGraph`. It resolves `async`/iterator state machines back to their
    user-facing method, and handles virtual dispatch.
 4. **Match** — `SinkShapes` recognizes sink call patterns; `SanitizerShapes` recognizes
-   bound checks and sanitizers that clear taint.
+   bound checks, regex guards, and value-transforming sanitizers such as quote-doubling
+   (`Replace("'", "''")`), which clear taint.
 5. **Emit** — `TraceEmitter` writes a YAML document with the `source`, the reached `sink`,
    and the full `path` of hops between them.
 
 Supported sink kinds: `Allocation` (`new_array`, `array_pool_rent`, `stackalloc`),
 `SpanAccess` (`span_slice`, `span_index`), HTTP body reads, and `SqlInjection`
-(`sql_command_text`, `sql_command_builder_append`).
+(`sql_command_text`, `sql_command_builder_append`, `sql_command_builder_append_raw`).
 
 The CWE-835 loop detector (`--scan-profile loop`) is a separate structural pass
 (`LoopTerminationAnalyzer`) — it does not use the taint walker. It resolves a method's

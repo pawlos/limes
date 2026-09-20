@@ -1,0 +1,5 @@
+vuln_id: marten-rfx3-postfix
+source_methods:
+  - signature: Marten.Linq.Members.Dictionaries.DictionaryContainsKeyFilter::Apply(Weasel.Postgresql.ICommandBuilder)
+    seed_this_fields:
+      - _keyText

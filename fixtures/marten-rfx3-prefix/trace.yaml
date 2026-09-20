@@ -1,0 +1,33 @@
+vuln_id: marten-rfx3-prefix
+source:
+  method: Marten.Linq.Members.Dictionaries.DictionaryContainsKeyFilter.Apply
+  file: ''
+  line: 0
+  role: source
+  tainted_value_in: builder
+  transformation: read_stream
+  tainted_value_out: builder
+  kind: decoder_entry
+sink:
+  method: Marten.Linq.Members.Dictionaries.DictionaryContainsKeyFilter.Apply
+  file: ''
+  line: 0
+  role: sink
+  tainted_value_in: _keyText
+  transformation: identity
+  tainted_value_out: _keyText
+  kind: sql_injection
+  api: sql_command_builder_append_raw
+path:
+- hop: 0
+  method: Marten.Linq.Members.Dictionaries.DictionaryContainsKeyFilter.Apply
+  file: ''
+  line: 0
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: _keyText
+sanitizer_absence:
+- location: :0
+  expected_check: _keyText must be bounded before reaching sql_command_builder_append_raw at :0
+  tainted_value: _keyText

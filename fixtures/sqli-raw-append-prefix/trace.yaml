@@ -1,0 +1,33 @@
+vuln_id: sqli-raw-append-prefix
+source:
+  method: RawAppendSqliPoc.DictionaryKeyFragment.Apply
+  file: RawAppendSqliDemo.cs
+  line: 20
+  role: source
+  tainted_value_in: builder
+  transformation: read_stream
+  tainted_value_out: builder
+  kind: decoder_entry
+sink:
+  method: RawAppendSqliPoc.DictionaryKeyFragment.Apply
+  file: RawAppendSqliDemo.cs
+  line: 22
+  role: sink
+  tainted_value_in: _key
+  transformation: identity
+  tainted_value_out: _key
+  kind: sql_injection
+  api: sql_command_builder_append_raw
+path:
+- hop: 0
+  method: RawAppendSqliPoc.DictionaryKeyFragment.Apply
+  file: RawAppendSqliDemo.cs
+  line: 22
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: _key
+sanitizer_absence:
+- location: RawAppendSqliDemo.cs:22
+  expected_check: _key must be bounded before reaching sql_command_builder_append_raw at RawAppendSqliDemo.cs:22
+  tainted_value: _key

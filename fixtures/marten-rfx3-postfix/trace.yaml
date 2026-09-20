@@ -1,0 +1,33 @@
+vuln_id: marten-rfx3-postfix
+source:
+  method: Marten.Linq.Members.Dictionaries.DictionaryContainsKeyFilter.Apply
+  file: ''
+  line: 0
+  role: source
+  tainted_value_in: builder
+  transformation: read_stream
+  tainted_value_out: builder
+  kind: decoder_entry
+path:
+- hop: 0
+  method: Marten.Linq.Members.Dictionaries.DictionaryContainsKeyFilter.Apply
+  file: ''
+  line: 0
+  role: propagator
+  tainted_value_in: this
+  transformation: field_load
+  tainted_value_out: _keyText
+- hop: 1
+  method: Marten.Linq.Members.Dictionaries.DictionaryContainsKeyFilter.Apply
+  file: ''
+  line: 0
+  role: sanitizer
+  tainted_value_in: _keyText
+  transformation: sql_quote_escape
+  tainted_value_out: sql_quote_escaped(_keyText)
+  dispatch:
+    kind: direct
+    static_type: Marten.Linq.Members.Dictionaries.DictionaryContainsKeyFilter
+    resolved_targets: []
+    closure_boundary: false
+sanitizer_absence: []

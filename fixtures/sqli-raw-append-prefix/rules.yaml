@@ -1,0 +1,5 @@
+vuln_id: sqli-raw-append-prefix
+source_methods:
+  - signature: RawAppendSqliPoc.DictionaryKeyFragment::Apply(Weasel.Postgresql.ICommandBuilder)
+    seed_this_fields:
+      - _key
