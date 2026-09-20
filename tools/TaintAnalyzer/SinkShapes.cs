@@ -213,13 +213,34 @@ public static class SinkShapes
             : MatchesDbProviderHeuristic(declaring);
     }
 
+    // A "command-builder append" is either the parameterizing overload
+    // (`AppendWithParameters(string, …)`, which binds `?` placeholders) or the RAW overload
+    // (`Append(string)`, which concatenates SQL text verbatim). Both are injection sinks when the
+    // string argument is attacker-controlled; the raw one is the more dangerous of the two
+    // because nothing is bound. They are reported under distinct SinkApi values so traces stay
+    // triageable (milestone-Escape / Marten GHSA-rfx3-98h7-v3xp).
     private static bool IsCommandBuilderAppendCall(MethodReference mr)
+        => IsCommandBuilderParameterizedAppend(mr) || IsCommandBuilderRawAppend(mr);
+
+    private static bool IsCommandBuilderParameterizedAppend(MethodReference mr)
     {
         if (mr.Name != "AppendWithParameters") return false;
         if (mr.Parameters.Count < 1) return false;
         if (mr.Parameters[0].ParameterType.FullName != "System.String") return false;
+        return DeclaringTypeIsCommandBuilder(mr.DeclaringType);
+    }
 
-        var declaring = mr.DeclaringType;
+    // `Append(char)` is deliberately excluded: a single char cannot carry an injection payload.
+    private static bool IsCommandBuilderRawAppend(MethodReference mr)
+    {
+        if (mr.Name != "Append") return false;
+        if (mr.Parameters.Count != 1) return false;
+        if (mr.Parameters[0].ParameterType.FullName != "System.String") return false;
+        return DeclaringTypeIsCommandBuilder(mr.DeclaringType);
+    }
+
+    private static bool DeclaringTypeIsCommandBuilder(TypeReference declaring)
+    {
         TypeDefinition? resolved;
         try { resolved = declaring.Resolve(); }
         catch (AssemblyResolutionException) { resolved = null; }
@@ -420,7 +441,11 @@ public static class SinkShapes
     {
         if (instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt) return null;
         if (instruction.Operand is not MethodReference mr) return null;
-        if (!IsCommandBuilderAppendCall(mr)) return null;
+
+        SinkApi api;
+        if (IsCommandBuilderParameterizedAppend(mr)) api = SinkApi.SqlCommandBuilderAppend;
+        else if (IsCommandBuilderRawAppend(mr)) api = SinkApi.SqlCommandBuilderAppendRaw;
+        else return null;
 
         // Stack layout: [receiver, arg0, arg1, …, argN-1] with argN-1 at Peek(0).
         // The SQL string (arg0) is at Peek(paramCount - 1).
@@ -433,28 +458,31 @@ public static class SinkShapes
         return new SinkMatch
         {
             Kind = SinkKind.SqlInjection,
-            Api = SinkApi.SqlCommandBuilderAppend,
+            Api = api,
             SizeProvenance = sqlSlot.Provenance,
         };
     }
 
     private static bool ImplementsCommandBuilder(TypeDefinition td)
     {
-        const string Target = "Weasel.Postgresql.ICommandBuilder";
-        const string TargetFake = "Weasel.Postgresql.IFakeCommandBuilder";  // test fixture
+        // Weasel 9.x (Marten 9.x) moved ICommandBuilder from Weasel.Postgresql to Weasel.Core.
+        static bool IsTarget(string fullName) =>
+            fullName == "Weasel.Postgresql.ICommandBuilder"
+            || fullName == "Weasel.Core.ICommandBuilder"
+            || fullName == "Weasel.Postgresql.IFakeCommandBuilder";  // test fixture
 
         var current = td;
         while (current is not null)
         {
-            if (current.FullName == Target || current.FullName == TargetFake) return true;
+            if (IsTarget(current.FullName)) return true;
             foreach (var iface in current.Interfaces)
             {
                 var ir = iface.InterfaceType;
-                if (ir.FullName == Target || ir.FullName == TargetFake) return true;
+                if (IsTarget(ir.FullName)) return true;
                 TypeDefinition? iresolved;
                 try { iresolved = ir.Resolve(); }
                 catch (AssemblyResolutionException) { iresolved = null; }
-                if (iresolved is not null && (iresolved.FullName == Target || iresolved.FullName == TargetFake)) return true;
+                if (iresolved is not null && IsTarget(iresolved.FullName)) return true;
             }
             var baseType = current.BaseType;
             try { current = baseType?.Resolve(); }
@@ -465,8 +493,10 @@ public static class SinkShapes
 
     private static bool MatchesCommandBuilderHeuristic(TypeReference tr)
     {
+        // Widened from `Weasel.Postgresql` to any `Weasel.*` namespace so the 9.x Weasel.Core
+        // move is covered when the Weasel assembly isn't resolvable next to the target.
         var ns = tr.Namespace ?? "";
-        if (!ns.StartsWith("Weasel.Postgresql", StringComparison.Ordinal)) return false;
+        if (!ns.StartsWith("Weasel.", StringComparison.Ordinal)) return false;
 
         var typeName = tr.Name ?? "";
         return typeName.Contains("Command", StringComparison.Ordinal);

@@ -905,6 +905,9 @@ public static class CommandBuilderFixtures
 
     public static void DoAppend(Weasel.Postgresql.IFakeCommandBuilder b, string sql)
         => b.Append(sql);
+
+    public static void DoAppendChar(Weasel.Postgresql.IFakeCommandBuilder b, char c)
+        => b.Append(c);
 }
 
 public static class RegexGuardFixtures
@@ -946,5 +949,52 @@ public static class RegexGuardFixtures
     {
         if (!s.StartsWith("x"))
             throw new System.ArgumentException("invalid", nameof(s));
+    }
+}
+
+// milestone-Escape: quote-doubling escape recognizer fixtures.
+// Marten 9.13.0 fixes GHSA-rfx3-98h7-v3xp with exactly the `Escape` shape below.
+public static class QuoteEscapeFixtures
+{
+    public static string Escape(string s) => s.Replace("'", "''");
+
+    // Negative: escapes double quotes, not single quotes.
+    public static string DoubleQuoteEscape(string s) => s.Replace("\"", "\"\"");
+
+    // Negative: strips the quote instead of doubling it.
+    public static string StripQuote(string s) => s.Replace("'", "");
+
+    // Negative: char overload cannot double a quote.
+    public static string CharOverload(string s) => s.Replace('\'', '"');
+
+    // Negative (documented limitation): literals routed through locals are not recognized.
+    public static string EscapeViaLocals(string s)
+    {
+        var from = "'";
+        var to = "''";
+        return s.Replace(from, to);
+    }
+}
+
+// Instance shape used by the walker tests: a `this`-field flows into a fake command
+// builder, with and without the escape.
+public sealed class QuoteEscapeFragment
+{
+    private readonly string _key;
+
+    public QuoteEscapeFragment(string key) => _key = key;
+
+    public void ApplyEscaped(Weasel.Postgresql.IFakeCommandBuilder b)
+    {
+        b.Append("d.data #> '{");
+        b.Append(_key.Replace("'", "''"));
+        b.Append("}' is not null");
+    }
+
+    public void ApplyRaw(Weasel.Postgresql.IFakeCommandBuilder b)
+    {
+        b.Append("d.data #> '{");
+        b.Append(_key);
+        b.Append("}' is not null");
     }
 }

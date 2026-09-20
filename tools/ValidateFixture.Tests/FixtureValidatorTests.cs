@@ -537,6 +537,28 @@ public class FixtureValidatorTests
         public void Dispose() { try { Directory.Delete(Path, recursive: true); } catch { /* ignore */ } }
     }
 
+    [Fact]
+    public void SanitizerNode_QuoteEscapeTransformation_IsExemptFromFX023()
+    {
+        // Value-transforming sanitizers carry no bound and no failure branch.
+        var yaml = BuildYaml(pathRole: "sanitizer", pathTransformation: "sql_quote_escape");
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+
+        diagnostics.ShouldNotContain(d => d.Code == "FX023");
+        diagnostics.ShouldNotContain(d => d.Code == "FX011");
+    }
+
+    [Fact]
+    public void SanitizerNode_IdentityTransformationWithoutBound_StillReportsFX023()
+    {
+        // Negative control: the exemption must not blanket-disable FX023 for sanitizers.
+        var yaml = BuildYaml(pathRole: "sanitizer", pathTransformation: "identity");
+        var diagnostics = new FixtureValidator().Validate(yaml, snippetsDir: null);
+
+        diagnostics.ShouldContain(d => d.Code == "FX023" && d.Message.Contains("establishes_bound"));
+        diagnostics.ShouldContain(d => d.Code == "FX023" && d.Message.Contains("on_failure"));
+    }
+
     private static string BuildYaml(
         string pathRole = "propagator",
         string pathTransformation = "identity",

@@ -135,6 +135,13 @@ public sealed class TaintWalker
             .GroupBy(c => c.JoinIlOffset)
             .ToDictionary(g => g.Key, g => g.First());
 
+        // milestone-Escape: IL offsets of quote-doubling `Replace("'", "''")` calls. The call is
+        // stepped as an ordinary external call — which over-approximates and pushes a tainted
+        // result — so the untaint is applied AFTER StepInstruction, below.
+        var quoteEscapeOffsets = SanitizerShapes.MatchSqlQuoteEscapes(method)
+            .Select(q => q.CallIlOffset)
+            .ToHashSet();
+
         foreach (var ins in method.Body.Instructions)
         {
             PushImplicitExceptionIfHandlerStart(method, ins, state);
@@ -199,7 +206,51 @@ public sealed class TaintWalker
                 }
             }
 
+            // Capture the escape receiver's provenance BEFORE the step: afterwards the external
+            // String.Replace call has rewritten the result slot's provenance to `<recv>.Replace`,
+            // while the hop should name the value that was escaped (e.g. `_keyText`).
+            // Stack at the call: [receiver, oldValue, newValue] — receiver is Peek(2).
+            string? escapeInputProvenance = null;
+            if (quoteEscapeOffsets.Contains(ins.Offset) && state.Stack.Depth >= 3)
+            {
+                var escapeReceiver = state.Stack.Peek(2);
+                if (escapeReceiver.Tainted) escapeInputProvenance = escapeReceiver.Provenance;
+            }
+
             StepInstruction(method, ins, state, newlyTaintedFields, hops, ref hopCounter, ref reachedSink, expandedCallees);
+
+            // Value-transforming sanitizer: the escaped result replaces the tainted one. Runs
+            // post-step because StepInstruction pushes the (over-approximated tainted) return of
+            // the external String.Replace call.
+            if (quoteEscapeOffsets.Contains(ins.Offset)
+                && state.Stack.Depth > 0
+                && state.Stack.Peek().Tainted)
+            {
+                var escapedFrom = state.Stack.Pop();
+                var escapedValue = escapeInputProvenance ?? escapedFrom.Provenance;
+                var escapedProvenance = $"sql_quote_escaped({escapedValue})";
+                state.Stack.Push(new StackSlot(false, escapedProvenance));
+
+                var escSp = _context.GetSequencePoint(method, ins);
+                hops.Add(new HopRecord
+                {
+                    Hop = hopCounter++,
+                    Method = $"{method.DeclaringType.FullName}.{method.Name}",
+                    File = escSp is null ? "" : Path.GetFileName(escSp.Document.Url),
+                    Line = escSp?.StartLine ?? 0,
+                    Role = HopRole.Sanitizer,
+                    TaintedValueIn = escapedValue,
+                    Transformation = "sql_quote_escape",
+                    TaintedValueOut = escapedProvenance,
+                    Dispatch = new ResolvedDispatch
+                    {
+                        Kind = "direct",
+                        StaticType = method.DeclaringType.FullName,
+                        ResolvedTargets = Array.Empty<string>(),
+                        ClosureBoundary = false,
+                    },
+                });
+            }
 
             // Detect tainted-return AFTER clamp untainting (above) so ternary-clamp join slots that
             // happen to coincide with `ret` (i.e. JoinIlOffset == ret offset) are already

@@ -504,23 +504,92 @@ public class SinkShapesTests
         SinkShapes.MatchCommandBuilderAppend(call, stack).ShouldBeNull();
     }
 
+    // milestone-Escape: this lock is the INVERSE of the T2.1 original. Marten GHSA-rfx3
+    // (CVE-2026-75513) injects through the raw `Append(string)` overload, which binds nothing
+    // at all — so it is a sink, reported under its own api so traces stay triageable.
     [Fact]
-    public void MatchCommandBuilderAppend_WrongName_ReturnsNull()
+    public void MatchCommandBuilderAppend_RawAppend_MatchesRawApi()
     {
         using var ctx = AssemblyContext.Load(FixturePath);
         var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.CommandBuilderFixtures::DoAppend(Weasel.Postgresql.IFakeCommandBuilder,System.String)");
 
-        // Method `Append` on the same interface — must not match (recognizer requires AppendWithParameters).
         var call = m.Body.Instructions.Single(i =>
-            (i.OpCode == Mono.Cecil.Cil.OpCodes.Call || i.OpCode == Mono.Cecil.Cil.OpCodes.Callvirt) &&
-            i.Operand is Mono.Cecil.MethodReference mr &&
+            (i.OpCode == OpCodes.Call || i.OpCode == OpCodes.Callvirt) &&
+            i.Operand is MethodReference mr &&
             mr.Name == "Append");
 
         var stack = new SymbolicStack();
         stack.Push(StackSlot.Untainted);                       // receiver
         stack.Push(StackSlot.TaintedWith("sql"));              // SQL — tainted
 
+        var match = SinkShapes.MatchCommandBuilderAppend(call, stack);
+
+        match.ShouldNotBeNull();
+        match!.Kind.ShouldBe(SinkKind.SqlInjection);
+        match.Api.ShouldBe(SinkApi.SqlCommandBuilderAppendRaw);
+        match.SizeProvenance.ShouldBe("sql");
+    }
+
+    [Fact]
+    public void MatchCommandBuilderAppend_RawAppend_Untainted_ReturnsNull()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.CommandBuilderFixtures::DoAppend(Weasel.Postgresql.IFakeCommandBuilder,System.String)");
+
+        var call = m.Body.Instructions.Single(i =>
+            (i.OpCode == OpCodes.Call || i.OpCode == OpCodes.Callvirt) &&
+            i.Operand is MethodReference mr &&
+            mr.Name == "Append");
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);
+        stack.Push(StackSlot.Untainted);
+
         SinkShapes.MatchCommandBuilderAppend(call, stack).ShouldBeNull();
+    }
+
+    [Fact]
+    public void MatchCommandBuilderAppend_CharOverload_ReturnsNull()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+        var m = M(ctx, "TaintAnalyzer.Tests.Fixtures.CommandBuilderFixtures::DoAppendChar(Weasel.Postgresql.IFakeCommandBuilder,System.Char)");
+
+        // A single char cannot carry an injection payload — the raw-append recognizer is
+        // string-only on purpose.
+        var call = m.Body.Instructions.Single(i =>
+            (i.OpCode == OpCodes.Call || i.OpCode == OpCodes.Callvirt) &&
+            i.Operand is MethodReference mr &&
+            mr.Name == "Append");
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);
+        stack.Push(StackSlot.TaintedWith("c"));
+
+        SinkShapes.MatchCommandBuilderAppend(call, stack).ShouldBeNull();
+    }
+
+    [Fact]
+    public void MatchCommandBuilderAppend_WeaselCoreNamespace_ResolveFailure_MatchesRawApi()
+    {
+        using var ctx = AssemblyContext.Load(FixturePath);
+
+        // Weasel 9.x (Marten 9.x) moved ICommandBuilder from Weasel.Postgresql to Weasel.Core.
+        var module = ctx.Assembly.MainModule;
+        var stringType = module.TypeSystem.String;
+        var voidType = module.TypeSystem.Void;
+        var declaringType = new Mono.Cecil.TypeReference("Weasel.Core", "ICommandBuilder", module, module);
+        var append = new Mono.Cecil.MethodReference("Append", voidType, declaringType) { HasThis = true };
+        append.Parameters.Add(new Mono.Cecil.ParameterDefinition(stringType));
+        var ins = Mono.Cecil.Cil.Instruction.Create(Mono.Cecil.Cil.OpCodes.Callvirt, append);
+
+        var stack = new SymbolicStack();
+        stack.Push(StackSlot.Untainted);
+        stack.Push(StackSlot.TaintedWith("sql"));
+
+        var match = SinkShapes.MatchCommandBuilderAppend(ins, stack);
+
+        match.ShouldNotBeNull();
+        match!.Api.ShouldBe(SinkApi.SqlCommandBuilderAppendRaw);
     }
 
     [Fact]

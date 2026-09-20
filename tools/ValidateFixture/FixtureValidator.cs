@@ -107,7 +107,9 @@ public sealed class FixtureValidator
                     CheckVocab(fk, Vocabularies.FailureKinds, "FX014", $"path[{i}].on_failure.kind", diagnostics);
                 }
 
-                if (string.Equals(node.Role, "sanitizer", StringComparison.Ordinal))
+                bool valueTransforming = node.Transformation is { } tf
+                    && Vocabularies.ValueTransformingSanitizers.Contains(tf);
+                if (string.Equals(node.Role, "sanitizer", StringComparison.Ordinal) && !valueTransforming)
                 {
                     if (node.EstablishesBound is null)
                     {

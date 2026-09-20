@@ -365,6 +365,9 @@ public static class TraceEmitter
     {
         if (chainTokens.Count == 0) return true;
         var target = sanitizer.EstablishesBound?.Target;
+        // Value-transforming sanitizers (sql_quote_escape) carry no bound. Match on the value
+        // they consumed, so they suppress absence only for their own chain.
+        if (string.IsNullOrEmpty(target)) target = sanitizer.TaintedValueIn;
         if (string.IsNullOrEmpty(target)) return true;
         var tgtTokens = TokenizeForMatch(target);
         if (tgtTokens.Count == 0) tgtTokens = ShortTokens(target);
@@ -455,6 +458,7 @@ public static class TraceEmitter
         SinkApi.HttpClientRead => "http_client_read",
         SinkApi.SqlCommandText => "sql_command_text",
         SinkApi.SqlCommandBuilderAppend => "sql_command_builder_append",
+        SinkApi.SqlCommandBuilderAppendRaw => "sql_command_builder_append_raw",
         _ => null,
     };
 

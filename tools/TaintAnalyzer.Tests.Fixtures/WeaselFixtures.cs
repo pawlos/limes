@@ -4,4 +4,5 @@ public interface IFakeCommandBuilder
 {
     void AppendWithParameters(string sql);
     void Append(string sql);
+    void Append(char c);
 }

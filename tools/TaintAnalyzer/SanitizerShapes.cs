@@ -29,6 +29,18 @@ public sealed class ClampMatch
     public required string BoundedOperandProvenance { get; init; }
 }
 
+/// <summary>
+/// A quote-doubling escape call — `s.Replace("\'", "\'\'")` — the standard PostgreSQL
+/// single-quoted-literal escape. Unlike every other sanitizer shape here, it establishes no bound
+/// and has no failure branch: it rewrites the value and execution continues. The walker consumes
+/// the offset and untaints the call's result.
+/// </summary>
+public sealed class QuoteEscapeMatch
+{
+    /// <summary>IL offset of the `String::Replace` call that performs the doubling.</summary>
+    public required int CallIlOffset { get; init; }
+}
+
 public static class SanitizerShapes
 {
     private const string DoesNotReturnFullName = "System.Diagnostics.CodeAnalysis.DoesNotReturnAttribute";
@@ -1700,5 +1712,46 @@ public static class SanitizerShapes
             StackBehaviour.Popref_popi_popref => 3,
             _ => 0,
         };
+    }
+
+    // Recognizes `<tainted>.Replace("'", "''")` by IL shape alone (no stack inspection), so it is
+    // unit-testable without the walker. Both argument literals must be inline `ldstr`s — which is
+    // what Roslyn emits for literal arguments in Debug and Release alike. Escape arguments routed
+    // through locals or fields are NOT recognized (documented limitation).
+    //
+    // Excluded on purpose: `Replace(char, char)` (cannot double a quote) and the
+    // StringComparison/culture overloads (no advisory has needed them yet).
+    public static IEnumerable<QuoteEscapeMatch> MatchSqlQuoteEscapes(MethodDefinition method)
+    {
+        if (method.Body is null) yield break;
+
+        foreach (var ins in method.Body.Instructions)
+        {
+            if (ins.OpCode.Code is not (Code.Call or Code.Callvirt)) continue;
+            if (ins.Operand is not MethodReference mr) continue;
+            if (mr.Name != "Replace") continue;
+            if (mr.DeclaringType.FullName != "System.String") continue;
+            if (mr.Parameters.Count != 2) continue;
+            if (mr.Parameters[0].ParameterType.FullName != "System.String") continue;
+            if (mr.Parameters[1].ParameterType.FullName != "System.String") continue;
+
+            // Stack at the call: [receiver, oldValue, newValue]. Walk the two pushers back.
+            var newValuePusher = PrevSkippingNops(ins);
+            if (newValuePusher is null || newValuePusher.OpCode.Code != Code.Ldstr) continue;
+            if (newValuePusher.Operand as string != "''") continue;
+
+            var oldValuePusher = PrevSkippingNops(newValuePusher);
+            if (oldValuePusher is null || oldValuePusher.OpCode.Code != Code.Ldstr) continue;
+            if (oldValuePusher.Operand as string != "'") continue;
+
+            yield return new QuoteEscapeMatch { CallIlOffset = ins.Offset };
+        }
+    }
+
+    private static Instruction? PrevSkippingNops(Instruction ins)
+    {
+        var p = ins.Previous;
+        while (p is not null && p.OpCode.Code == Code.Nop) p = p.Previous;
+        return p;
     }
 }
